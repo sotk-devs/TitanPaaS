@@ -1,8 +1,8 @@
-const eslint = require('@eslint/js');
-const tseslint = require('typescript-eslint');
-const eslintPluginPrettierRecommended = require('eslint-plugin-prettier/recommended');
+import eslint from '@eslint/js';
+import tseslint from 'typescript-eslint';
+import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
 
-module.exports = tseslint.config(
+export default tseslint.config(
   {
     ignores: ['eslint.config.js', 'dist/**'],
   },
@@ -13,7 +13,7 @@ module.exports = tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: true,
-        tsconfigRootDir: __dirname,
+        tsconfigRootDir: import.meta.dirname,
       },
     },
     rules: {

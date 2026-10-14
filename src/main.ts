@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
-import { Logger } from 'nestjs-pino';
 import { AppModule, ObserveInstrument } from './app.module.js';
+import { AppLogger } from './common/logger/app-logger.service.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -9,7 +9,7 @@ async function bootstrap() {
     instrument: ObserveInstrument,
   });
 
-  const logger = app.get(Logger);
+  const logger = app.get(AppLogger);
   app.useLogger(logger);
 
   // Security Middlewares

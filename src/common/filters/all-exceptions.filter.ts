@@ -5,8 +5,9 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
+  Optional,
 } from '@nestjs/common';
-import { Logger } from 'nestjs-pino';
 import type { Request, Response } from 'express';
 
 export interface ErrorResponse {
@@ -21,7 +22,11 @@ export interface ErrorResponse {
 @Catch()
 @Injectable()
 export class AllExceptionsFilter implements ExceptionFilter {
-  constructor(private readonly logger: Logger) {}
+  private readonly logger: Logger;
+
+  constructor(@Optional() logger?: Logger) {
+    this.logger = logger ?? new Logger(AllExceptionsFilter.name);
+  }
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
@@ -63,19 +68,23 @@ export class AllExceptionsFilter implements ExceptionFilter {
       ...(error ? { error } : {}),
     };
 
-    const logPayload = {
+    const logDetails = JSON.stringify({
       statusCode: status,
       path: request.url,
       method: request.method,
       ip: request.ip,
       errorResponse,
-      stack: exception instanceof Error ? exception.stack : undefined,
-    };
+    });
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
-      this.logger.error(logPayload, `Unhandled exception: ${message}`);
+      this.logger.error(
+        `Unhandled exception: ${message} - ${logDetails}`,
+        exception instanceof Error ? exception.stack : undefined,
+      );
     } else {
-      this.logger.warn(logPayload, `HTTP exception [${status}]: ${message}`);
+      this.logger.warn(
+        `HTTP exception [${status}]: ${message} - ${logDetails}`,
+      );
     }
 
     response.status(status).json(errorResponse);

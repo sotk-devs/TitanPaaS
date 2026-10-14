@@ -1,6 +1,10 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
-import { Logger } from 'nestjs-pino';
+import {
+  ArgumentsHost,
+  HttpException,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
 import { AllExceptionsFilter } from './all-exceptions.filter.js';
 import type { Request, Response } from 'express';
 

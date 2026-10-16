@@ -7,6 +7,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
     instrument: ObserveInstrument,
+    rawBody: true,
   });
 
   const logger = app.get(AppLogger);

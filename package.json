@@ -23,11 +23,14 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@nestjs/bullmq": "^12.0.0",
     "@nestjs/common": "^12.0.1",
     "@nestjs/core": "^12.0.1",
     "@nestjs/observe": "^0.1.8",
     "@nestjs/platform-express": "^12.0.1",
+    "bullmq": "^6.3.15",
     "helmet": "^8.3.0",
+    "ioredis": "^6.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "winston": "^3.19.0"

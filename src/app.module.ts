@@ -7,6 +7,7 @@ import { AppService } from './app.service.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { AppLogger } from './common/logger/app-logger.service.js';
 import { WebhooksModule } from './webhooks/webhooks.module.js';
+import { DeploymentModule } from './deployment/deployment.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -19,6 +20,11 @@ const telemetryModules =
           serviceId: 'TitanPaaS',
         }),
       ]
+    : [];
+
+const workerModules =
+  process.env.NODE_ENV !== 'test' || process.env.WORKER_ENABLED === 'true'
+    ? [DeploymentModule]
     : [];
 
 @Module({
@@ -38,9 +44,8 @@ const telemetryModules =
         },
       },
     }),
-    // Distributed tracing, auto-correlated logs, request/job metrics, error
-    // telemetry, alarms, and more — out of the box. Sign up at https://observe.nestjs.com
     ...telemetryModules,
+    ...workerModules,
     WebhooksModule,
   ],
   controllers: [AppController],

@@ -1,58 +1,135 @@
-import { describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { ConflictException } from '@nestjs/common';
+import { Repository } from 'typeorm';
 import { UsersService } from './users.service.js';
+import { User } from './entities/user.entity.js';
 
 describe('UsersService', () => {
   let service: UsersService;
+  let repository: jest.Mocked<Partial<Repository<User>>>;
 
-  beforeEach(() => {
-    service = new UsersService();
+  const mockUser: User = {
+    id: '123e4567-e89b-12d3-a456-426614174000',
+    email: 'test@example.com',
+    password: 'hashedPassword123',
+    name: 'Test User',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  beforeEach(async () => {
+    repository = {
+      create: jest.fn().mockImplementation((dto) => dto as User),
+      save: jest
+        .fn()
+        .mockImplementation((user) =>
+          Promise.resolve({ ...mockUser, ...(user as User) }),
+        ),
+      findOne: jest.fn(),
+      find: jest.fn().mockResolvedValue([mockUser]),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        UsersService,
+        {
+          provide: getRepositoryToken(User),
+          useValue: repository,
+        },
+      ],
+    }).compile();
+
+    service = module.get<UsersService>(UsersService);
   });
 
-  it('should create and store a user', async () => {
-    const user = await service.create({
-      email: 'test@example.com',
-      password: 'hashed_password',
-      name: 'Test User',
+  it('should be defined', () => {
+    expect(service).toBeDefined();
+  });
+
+  describe('create', () => {
+    it('should successfully create and return a user', async () => {
+      (repository.findOne as any).mockResolvedValue(null);
+
+      const result = await service.create({
+        email: 'TEST@example.com',
+        password: 'hashedPassword123',
+        name: 'Test User',
+      });
+
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: { email: 'test@example.com' },
+      });
+      expect(repository.create).toHaveBeenCalledWith({
+        email: 'test@example.com',
+        password: 'hashedPassword123',
+        name: 'Test User',
+      });
+      expect(repository.save).toHaveBeenCalled();
+      expect(result.email).toBe('test@example.com');
     });
 
-    expect(user).toBeDefined();
-    expect(user.id).toBeDefined();
-    expect(user.email).toBe('test@example.com');
-    expect(user.name).toBe('Test User');
-    expect(user.password).toBe('hashed_password');
+    it('should throw ConflictException if user email already exists', async () => {
+      (repository.findOne as any).mockResolvedValue(mockUser);
+
+      await expect(
+        service.create({
+          email: 'test@example.com',
+          password: 'password',
+          name: 'Existing',
+        }),
+      ).rejects.toThrow(ConflictException);
+
+      expect(repository.save).not.toHaveBeenCalled();
+    });
   });
 
-  it('should find user by email case-insensitively', async () => {
-    await service.create({
-      email: 'USER@example.com',
-      password: 'secret',
-      name: 'User',
+  describe('findByEmail', () => {
+    it('should return a user if found', async () => {
+      (repository.findOne as any).mockResolvedValue(mockUser);
+
+      const result = await service.findByEmail('TEST@example.com');
+      expect(result).toEqual(mockUser);
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: { email: 'test@example.com' },
+      });
     });
 
-    const found = await service.findByEmail('user@example.com');
-    expect(found).not.toBeNull();
-    expect(found?.email).toBe('user@example.com');
+    it('should return null if user is not found', async () => {
+      (repository.findOne as any).mockResolvedValue(null);
+
+      const result = await service.findByEmail('nonexistent@example.com');
+      expect(result).toBeNull();
+    });
   });
 
-  it('should return null if user by email does not exist', async () => {
-    const found = await service.findByEmail('notfound@example.com');
-    expect(found).toBeNull();
-  });
+  describe('findById', () => {
+    it('should return a user by id', async () => {
+      (repository.findOne as any).mockResolvedValue(mockUser);
 
-  it('should find user by id', async () => {
-    const created = await service.create({
-      email: 'id_test@example.com',
-      password: 'secret',
-      name: 'ID Test',
+      const result = await service.findById(
+        '123e4567-e89b-12d3-a456-426614174000',
+      );
+      expect(result).toEqual(mockUser);
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: { id: '123e4567-e89b-12d3-a456-426614174000' },
+      });
     });
 
-    const found = await service.findById(created.id);
-    expect(found).not.toBeNull();
-    expect(found?.id).toBe(created.id);
+    it('should return null if user by id is not found', async () => {
+      (repository.findOne as any).mockResolvedValue(null);
+
+      const result = await service.findById('non-existent-id');
+      expect(result).toBeNull();
+    });
   });
 
-  it('should return null if user by id does not exist', async () => {
-    const found = await service.findById('non-existent-id');
-    expect(found).toBeNull();
+  describe('findAll', () => {
+    it('should return an array of users', async () => {
+      const result = await service.findAll();
+      expect(result).toEqual([mockUser]);
+      expect(repository.find).toHaveBeenCalledTimes(1);
+    });
   });
 });

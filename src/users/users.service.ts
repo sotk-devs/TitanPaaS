@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { Injectable, ConflictException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { User } from './entities/user.entity.js';
 
 export interface CreateUserData {
@@ -10,34 +11,42 @@ export interface CreateUserData {
 
 @Injectable()
 export class UsersService {
-  private readonly users = new Map<string, User>();
+  constructor(
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) {}
 
   async create(data: CreateUserData): Promise<User> {
-    const now = new Date();
-    const user: User = {
-      id: randomUUID(),
-      email: data.email.toLowerCase(),
-      password: data.password,
-      name: data.name,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const normalizedEmail = data.email.toLowerCase().trim();
 
-    this.users.set(user.id, user);
-    return user;
+    const existingUser = await this.findByEmail(normalizedEmail);
+    if (existingUser) {
+      throw new ConflictException('User with this email already exists');
+    }
+
+    const user = this.userRepository.create({
+      email: normalizedEmail,
+      password: data.password,
+      name: data.name.trim(),
+    });
+
+    return this.userRepository.save(user);
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    const normalizedEmail = email.toLowerCase();
-    for (const user of this.users.values()) {
-      if (user.email === normalizedEmail) {
-        return user;
-      }
-    }
-    return null;
+    const normalizedEmail = email.toLowerCase().trim();
+    return this.userRepository.findOne({
+      where: { email: normalizedEmail },
+    });
   }
 
   async findById(id: string): Promise<User | null> {
-    return this.users.get(id) ?? null;
+    return this.userRepository.findOne({
+      where: { id },
+    });
+  }
+
+  async findAll(): Promise<User[]> {
+    return this.userRepository.find();
   }
 }

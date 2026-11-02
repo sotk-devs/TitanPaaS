@@ -4,14 +4,48 @@ import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcrypt';
 import { AuthService } from './auth.service.js';
 import { UsersService } from '../users/users.service.js';
+import { User } from '../users/entities/user.entity.js';
 
 describe('AuthService', () => {
   let authService: AuthService;
   let usersService: UsersService;
   let jwtService: JwtService;
+  let mockUserStorage: Map<string, User>;
 
   beforeEach(() => {
-    usersService = new UsersService();
+    mockUserStorage = new Map<string, User>();
+
+    usersService = {
+      create: jest.fn().mockImplementation(async (dto: any) => {
+        const normalized = dto.email.toLowerCase().trim();
+        if (mockUserStorage.has(normalized)) {
+          throw new ConflictException('User with this email already exists');
+        }
+        const user: User = {
+          id: 'mock-uuid',
+          email: normalized,
+          password: dto.password,
+          name: dto.name,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        mockUserStorage.set(normalized, user);
+        return user;
+      }),
+      findByEmail: jest.fn().mockImplementation(async (email: string) => {
+        return mockUserStorage.get(email.toLowerCase().trim()) || null;
+      }),
+      findById: jest.fn().mockImplementation(async (id: string) => {
+        for (const user of mockUserStorage.values()) {
+          if (user.id === id) return user;
+        }
+        return null;
+      }),
+      findAll: jest.fn().mockImplementation(async () => {
+        return Array.from(mockUserStorage.values());
+      }),
+    } as unknown as UsersService;
+
     jwtService = {
       signAsync: jest.fn().mockResolvedValue('mock_jwt_token' as never),
     } as unknown as JwtService;
@@ -60,19 +94,21 @@ describe('AuthService', () => {
   });
 
   describe('login', () => {
-    it('should login successfully with valid credentials', async () => {
-      const registerDto = {
+    beforeEach(async () => {
+      await authService.register({
         email: 'login@example.com',
-        password: 'correctpassword',
+        password: 'securePassword123',
         name: 'Login User',
+      });
+    });
+
+    it('should login successfully with valid credentials', async () => {
+      const loginDto = {
+        email: 'login@example.com',
+        password: 'securePassword123',
       };
 
-      await authService.register(registerDto);
-
-      const result = await authService.login({
-        email: 'login@example.com',
-        password: 'correctpassword',
-      });
+      const result = await authService.login(loginDto);
 
       expect(result.access_token).toBe('mock_jwt_token');
       expect(result.user.email).toBe('login@example.com');
@@ -80,27 +116,25 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException if user is not found', async () => {
-      await expect(
-        authService.login({
-          email: 'nonexistent@example.com',
-          password: 'password',
-        }),
-      ).rejects.toThrow(UnauthorizedException);
+      const loginDto = {
+        email: 'nonexistent@example.com',
+        password: 'securePassword123',
+      };
+
+      await expect(authService.login(loginDto)).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('should throw UnauthorizedException if password is incorrect', async () => {
-      await authService.register({
-        email: 'user@example.com',
-        password: 'correctpassword',
-        name: 'User',
-      });
+      const loginDto = {
+        email: 'login@example.com',
+        password: 'wrongPassword',
+      };
 
-      await expect(
-        authService.login({
-          email: 'user@example.com',
-          password: 'wrongpassword',
-        }),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(authService.login(loginDto)).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 });

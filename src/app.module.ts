@@ -10,6 +10,7 @@ import { AppLogger } from './common/logger/app-logger.service.js';
 import { WebhooksModule } from './webhooks/webhooks.module.js';
 import { DeploymentModule } from './deployment/deployment.module.js';
 import { UsersModule } from './users/users.module.js';
+import { AuthModule } from './auth/auth.module.js';
 import { getTypeOrmConfig } from './database/database.config.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -32,6 +33,7 @@ const databaseModules =
           useFactory: () => getTypeOrmConfig(),
         }),
         UsersModule,
+        AuthModule,
       ]
     : [];
 

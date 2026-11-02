@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
+import { BullModule } from '@nestjs/bullmq';
 import { createObserveModule } from '@nestjs/observe';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
@@ -7,6 +8,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { AppLogger } from './common/logger/app-logger.service.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { WebhooksModule } from './webhooks/webhooks.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -23,11 +25,27 @@ const telemetryModules =
 
 @Module({
   imports: [
+    BullModule.forRoot({
+      connection: {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: Number(process.env.REDIS_PORT) || 6379,
+        password: process.env.REDIS_PASSWORD || undefined,
+        maxRetriesPerRequest: null,
+        enableReadyCheck: false,
+        retryStrategy: (times) => {
+          if (process.env.NODE_ENV === 'test') {
+            return null;
+          }
+          return Math.min(times * 100, 3000);
+        },
+      },
+    }),
     // Distributed tracing, auto-correlated logs, request/job metrics, error
     // telemetry, alarms, and more — out of the box. Sign up at https://observe.nestjs.com
     ...telemetryModules,
     UsersModule,
     AuthModule,
+    WebhooksModule,
   ],
   controllers: [AppController],
   providers: [

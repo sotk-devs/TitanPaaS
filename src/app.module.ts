@@ -8,6 +8,7 @@ import { AppService } from './app.service.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { AppLogger } from './common/logger/app-logger.service.js';
 import { WebhooksModule } from './webhooks/webhooks.module.js';
+import { DeploymentModule } from './deployment/deployment.module.js';
 import { UsersModule } from './users/users.module.js';
 import { getTypeOrmConfig } from './database/database.config.js';
 
@@ -34,6 +35,11 @@ const databaseModules =
       ]
     : [];
 
+const workerModules =
+  process.env.NODE_ENV !== 'test' || process.env.WORKER_ENABLED === 'true'
+    ? [DeploymentModule]
+    : [];
+
 @Module({
   imports: [
     BullModule.forRoot({
@@ -53,6 +59,7 @@ const databaseModules =
     }),
     ...databaseModules,
     ...telemetryModules,
+    ...workerModules,
     WebhooksModule,
   ],
   controllers: [AppController],

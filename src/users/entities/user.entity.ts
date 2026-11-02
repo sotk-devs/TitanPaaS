@@ -4,8 +4,11 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  OneToMany,
   Index,
+  type Relation,
 } from 'typeorm';
+import type { Project } from '../../projects/entities/project.entity.js';
 
 @Entity('users')
 export class User {
@@ -21,6 +24,9 @@ export class User {
 
   @Column({ type: 'varchar' })
   name: string;
+
+  @OneToMany('Project', 'user')
+  projects: Relation<Project>[];
 
   @CreateDateColumn({ type: 'timestamp with time zone', name: 'created_at' })
   createdAt: Date;

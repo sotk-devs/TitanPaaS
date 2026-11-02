@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { BullModule } from '@nestjs/bullmq';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { createObserveModule } from '@nestjs/observe';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
@@ -8,6 +9,8 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { AppLogger } from './common/logger/app-logger.service.js';
 import { WebhooksModule } from './webhooks/webhooks.module.js';
 import { DeploymentModule } from './deployment/deployment.module.js';
+import { UsersModule } from './users/users.module.js';
+import { getTypeOrmConfig } from './database/database.config.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -19,6 +22,16 @@ const telemetryModules =
           appSecret: process.env.OBSERVE_APP_SECRET ?? 'YOUR_APP_SECRET',
           serviceId: 'TitanPaaS',
         }),
+      ]
+    : [];
+
+const databaseModules =
+  process.env.NODE_ENV !== 'test'
+    ? [
+        TypeOrmModule.forRootAsync({
+          useFactory: () => getTypeOrmConfig(),
+        }),
+        UsersModule,
       ]
     : [];
 
@@ -44,6 +57,7 @@ const workerModules =
         },
       },
     }),
+    ...databaseModules,
     ...telemetryModules,
     ...workerModules,
     WebhooksModule,

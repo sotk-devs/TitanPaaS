@@ -32,6 +32,8 @@ export interface GitHubPushPayload {
 
 export interface DeploymentJobData {
   deliveryId: string;
+  deploymentId?: string;
+  projectId?: string;
   repositoryName: string;
   cloneUrl: string;
   branch: string;

@@ -55,6 +55,30 @@ describe('DockerPipelineService', () => {
       expect(result.logs).toContain('Cloning into target...');
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
     });
+
+    it('should pass onLog callback to executeCommand when provided', async () => {
+      const mockOnLog = jest.fn();
+      jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'Cloning...',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      await service.cloneRepository(
+        'https://github.com/org/repo.git',
+        'main',
+        '',
+        '/tmp/test-dir',
+        mockOnLog,
+      );
+
+      expect(service.executeCommand).toHaveBeenCalledWith(
+        'git',
+        expect.any(Array),
+        undefined,
+        mockOnLog,
+      );
+    });
   });
 
   describe('buildImage', () => {
@@ -76,6 +100,24 @@ describe('DockerPipelineService', () => {
         '/tmp/test-dir',
       );
       expect(result.logs).toContain('Successfully built');
+    });
+
+    it('should pass onLog callback to executeCommand when provided', async () => {
+      const mockOnLog = jest.fn();
+      jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'Step 1/5...',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      await service.buildImage('my-image:latest', '/tmp/test-dir', mockOnLog);
+
+      expect(service.executeCommand).toHaveBeenCalledWith(
+        'docker',
+        ['build', '-t', 'my-image:latest', '.'],
+        '/tmp/test-dir',
+        mockOnLog,
+      );
     });
   });
 

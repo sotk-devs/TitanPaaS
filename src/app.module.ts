@@ -9,6 +9,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { AppLogger } from './common/logger/app-logger.service.js';
 import { WebhooksModule } from './webhooks/webhooks.module.js';
 import { DeploymentModule } from './deployment/deployment.module.js';
+import { LogsModule } from './logs/logs.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { ProjectsModule } from './projects/projects.module.js';
@@ -65,6 +66,7 @@ const workerModules =
     ...telemetryModules,
     ...workerModules,
     WebhooksModule,
+    LogsModule,
   ],
   controllers: [AppController],
   providers: [

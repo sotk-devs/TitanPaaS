@@ -1,16 +1,34 @@
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { Logger } from '@nestjs/common';
+import { Logger, Optional } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { DEPLOY_QUEUE, DEPLOY_JOB } from '../webhooks/webhooks.constants.js';
 import { DeploymentJobData } from '../webhooks/interfaces/github-payload.interface.js';
 import {
   DeploymentResult,
   DeploymentStage,
 } from './interfaces/deployment-result.interface.js';
+import { DockerPipelineService } from './docker-pipeline.service.js';
+import { Deployment } from '../deployments/entities/deployment.entity.js';
+import { Project } from '../projects/entities/project.entity.js';
+import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js';
 
 @Processor(DEPLOY_QUEUE)
 export class DeploymentWorker extends WorkerHost {
   private readonly logger = new Logger(DeploymentWorker.name);
+
+  constructor(
+    private readonly dockerPipeline: DockerPipelineService,
+    @Optional()
+    @InjectRepository(Deployment)
+    private readonly deploymentRepository?: Repository<Deployment>,
+    @Optional()
+    @InjectRepository(Project)
+    private readonly projectRepository?: Repository<Project>,
+  ) {
+    super();
+  }
 
   async process(
     job: Job<DeploymentJobData, DeploymentResult, string>,
@@ -25,6 +43,7 @@ export class DeploymentWorker extends WorkerHost {
     const data = job.data;
     const startTime = Date.now();
     const startedAt = new Date().toISOString();
+    let accumulatedLogs = '';
 
     this.logger.log(
       `🚀 [Job #${job.id}] Iniciando pipeline de despliegue para ${data.repositoryName} (${data.branch})`,
@@ -33,79 +52,165 @@ export class DeploymentWorker extends WorkerHost {
       `📦 Commit: ${data.commitSha.substring(0, 7)} - "${data.commitMessage}" por @${data.author}`,
     );
 
+    // Obtener configuración de proyecto si existe
+    let port = 3000;
+    let envVariables: Record<string, string> = {};
+
+    if (data.projectId && this.projectRepository) {
+      const project = await this.projectRepository.findOne({
+        where: { id: data.projectId },
+      });
+      if (project) {
+        port = project.port || 3000;
+        envVariables = project.envVariables || {};
+      }
+    }
+
     const stages: DeploymentStage[] = [];
-
-    // Stage 1: Clonación del repositorio
-    const stage1Start = Date.now();
-    this.logger.log(
-      `📥 [Job #${job.id}] [1/4] Clonando repositorio desde ${data.cloneUrl}...`,
+    const workspaceDir = this.dockerPipeline.getWorkspacePath(
+      data.repositoryName,
+      data.commitSha,
     );
-    await job.updateProgress(25);
-    await this.simulateDelay(50);
-    stages.push({
-      name: 'clone',
-      status: 'success',
-      durationMs: Date.now() - stage1Start,
-    });
-
-    // Stage 2: Instalación de dependencias y compilación
-    const stage2Start = Date.now();
-    this.logger.log(
-      `🔨 [Job #${job.id}] [2/4] Instalando dependencias y compilando artefactos...`,
+    const imageTag = this.dockerPipeline.generateImageTag(
+      data.repositoryName,
+      data.commitSha,
     );
-    await job.updateProgress(50);
-    await this.simulateDelay(50);
-    stages.push({
-      name: 'build',
-      status: 'success',
-      durationMs: Date.now() - stage2Start,
-    });
-
-    // Stage 3: Creación y ejecución de contenedor Docker
-    const stage3Start = Date.now();
-    this.logger.log(
-      `🐳 [Job #${job.id}] [3/4] Creando contenedor Docker para ${data.repositoryName}...`,
-    );
-    await job.updateProgress(75);
-    await this.simulateDelay(50);
-    stages.push({
-      name: 'docker_deploy',
-      status: 'success',
-      durationMs: Date.now() - stage3Start,
-    });
-
-    // Stage 4: Verificación de salud (Healthcheck)
-    const stage4Start = Date.now();
-    this.logger.log(
-      `🩺 [Job #${job.id}] [4/4] Verificando estado de salud del contenedor...`,
-    );
-    await job.updateProgress(100);
-    await this.simulateDelay(25);
-    stages.push({
-      name: 'healthcheck',
-      status: 'success',
-      durationMs: Date.now() - stage4Start,
-    });
-
-    const finishedAt = new Date().toISOString();
-    const durationMs = Date.now() - startTime;
-
-    this.logger.log(
-      `✅ [Job #${job.id}] Despliegue completado exitosamente en ${durationMs}ms para ${data.repositoryName} (${data.branch})`,
+    const containerName = this.dockerPipeline.generateContainerName(
+      data.repositoryName,
     );
 
-    return {
-      jobId: String(job.id),
-      deliveryId: data.deliveryId,
-      repositoryName: data.repositoryName,
-      branch: data.branch,
-      commitSha: data.commitSha,
-      status: 'completed',
-      startedAt,
-      finishedAt,
-      durationMs,
-      stages,
-    };
+    let containerId: string;
+
+    try {
+      // Notificar estado BUILDING en base de datos
+      if (data.deploymentId && this.deploymentRepository) {
+        await this.deploymentRepository.update(data.deploymentId, {
+          status: DeploymentStatus.BUILDING,
+          startedAt: new Date(startedAt),
+        });
+      }
+
+      // Stage 1: Clonación del repositorio
+      this.logger.log(
+        `📥 [Job #${job.id}] [1/4] Clonando repositorio desde ${data.cloneUrl}...`,
+      );
+      const cloneResult = await this.dockerPipeline.cloneRepository(
+        data.cloneUrl,
+        data.branch,
+        data.commitSha,
+        workspaceDir,
+      );
+      accumulatedLogs += `=== STAGE 1: CLONE ===\n${cloneResult.logs}\n\n`;
+      await job.updateProgress(25);
+      stages.push({
+        name: 'clone',
+        status: 'success',
+        durationMs: cloneResult.durationMs,
+      });
+
+      // Stage 2: Compilación de imagen Docker
+      this.logger.log(
+        `🔨 [Job #${job.id}] [2/4] Compilando imagen Docker ${imageTag}...`,
+      );
+      const buildResult = await this.dockerPipeline.buildImage(
+        imageTag,
+        workspaceDir,
+      );
+      accumulatedLogs += `=== STAGE 2: BUILD ===\n${buildResult.logs}\n\n`;
+      await job.updateProgress(50);
+      stages.push({
+        name: 'build',
+        status: 'success',
+        durationMs: buildResult.durationMs,
+      });
+
+      // Notificar estado DEPLOYING en base de datos
+      if (data.deploymentId && this.deploymentRepository) {
+        await this.deploymentRepository.update(data.deploymentId, {
+          status: DeploymentStatus.DEPLOYING,
+        });
+      }
+
+      // Stage 3: Creación y ejecución de contenedor Docker
+      this.logger.log(
+        `🐳 [Job #${job.id}] [3/4] Desplegando contenedor Docker ${containerName} en puerto ${port}...`,
+      );
+      const runResult = await this.dockerPipeline.runContainer(
+        imageTag,
+        containerName,
+        port,
+        envVariables,
+      );
+      containerId = runResult.containerId;
+      accumulatedLogs += `=== STAGE 3: DOCKER DEPLOY ===\n${runResult.logs}\n\n`;
+      await job.updateProgress(75);
+      stages.push({
+        name: 'docker_deploy',
+        status: 'success',
+        durationMs: runResult.durationMs,
+      });
+
+      // Stage 4: Verificación de salud (Healthcheck)
+      this.logger.log(
+        `🩺 [Job #${job.id}] [4/4] Verificando estado de salud del contenedor ${containerId}...`,
+      );
+      const healthResult = await this.dockerPipeline.checkHealth(containerId);
+      accumulatedLogs += `=== STAGE 4: HEALTHCHECK ===\n${healthResult.logs}\n\n`;
+      await job.updateProgress(100);
+      stages.push({
+        name: 'healthcheck',
+        status: 'success',
+        durationMs: healthResult.durationMs,
+      });
+
+      const finishedAt = new Date().toISOString();
+      const durationMs = Date.now() - startTime;
+
+      // Actualizar registro en BD a DEPLOYED
+      if (data.deploymentId && this.deploymentRepository) {
+        await this.deploymentRepository.update(data.deploymentId, {
+          status: DeploymentStatus.DEPLOYED,
+          containerId,
+          logs: accumulatedLogs,
+          stages: stages as any,
+          finishedAt: new Date(finishedAt),
+        });
+      }
+
+      this.logger.log(
+        `✅ [Job #${job.id}] Despliegue completado exitosamente en ${durationMs}ms para ${data.repositoryName} (${data.branch})`,
+      );
+
+      return {
+        jobId: String(job.id),
+        deliveryId: data.deliveryId,
+        repositoryName: data.repositoryName,
+        branch: data.branch,
+        commitSha: data.commitSha,
+        status: 'completed',
+        startedAt,
+        finishedAt,
+        durationMs,
+        stages,
+      };
+    } catch (error) {
+      const finishedAt = new Date().toISOString();
+      accumulatedLogs += `\n❌ ERROR: ${(error as Error).message}\n`;
+
+      if (data.deploymentId && this.deploymentRepository) {
+        await this.deploymentRepository.update(data.deploymentId, {
+          status: DeploymentStatus.FAILED,
+          logs: accumulatedLogs,
+          stages: stages as any,
+          finishedAt: new Date(finishedAt),
+        });
+      }
+
+      throw error;
+    } finally {
+      // Limpieza de workspace temporal
+      await this.dockerPipeline.cleanup(workspaceDir);
+    }
   }
 
   @OnWorkerEvent('completed')
@@ -118,9 +223,5 @@ export class DeploymentWorker extends WorkerHost {
     this.logger.error(
       `[Worker] Tarea #${job?.id} falló con error: ${error.message}`,
     );
-  }
-
-  protected simulateDelay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

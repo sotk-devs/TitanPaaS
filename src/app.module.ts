@@ -11,6 +11,7 @@ import { WebhooksModule } from './webhooks/webhooks.module.js';
 import { DeploymentModule } from './deployment/deployment.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { ProjectsModule } from './projects/projects.module.js';
 import { getTypeOrmConfig } from './database/database.config.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -34,6 +35,7 @@ const databaseModules =
         }),
         UsersModule,
         AuthModule,
+        ProjectsModule,
       ]
     : [];
 

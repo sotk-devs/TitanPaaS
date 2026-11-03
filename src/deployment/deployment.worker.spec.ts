@@ -1,15 +1,26 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { Job } from 'bullmq';
+import { Repository } from 'typeorm';
 import { DeploymentWorker } from './deployment.worker.js';
+import { DockerPipelineService } from './docker-pipeline.service.js';
 import { DEPLOY_JOB } from '../webhooks/webhooks.constants.js';
 import { DeploymentJobData } from '../webhooks/interfaces/github-payload.interface.js';
+import { Deployment } from '../deployments/entities/deployment.entity.js';
+import { Project } from '../projects/entities/project.entity.js';
+import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js';
 
 describe('DeploymentWorker', () => {
   let worker: DeploymentWorker;
+  let mockDockerPipeline: jest.Mocked<Partial<DockerPipelineService>>;
+  let mockDeploymentRepo: jest.Mocked<Partial<Repository<Deployment>>>;
+  let mockProjectRepo: jest.Mocked<Partial<Repository<Project>>>;
 
   const mockJobData: DeploymentJobData = {
     deliveryId: 'uuid-1234',
+    deploymentId: 'uuid-deployment-1',
+    projectId: 'uuid-project-1',
     repositoryName: 'sotk-devs/sample-repo',
     cloneUrl: 'https://github.com/sotk-devs/sample-repo.git',
     branch: 'main',
@@ -19,16 +30,77 @@ describe('DeploymentWorker', () => {
     receivedAt: new Date().toISOString(),
   };
 
+  const mockProject: Project = {
+    id: 'uuid-project-1',
+    name: 'sample-project',
+    repositoryUrl: 'https://github.com/sotk-devs/sample-repo.git',
+    repositoryName: 'sotk-devs/sample-repo',
+    branch: 'main',
+    port: 8080,
+    envVariables: { NODE_ENV: 'production' },
+    userId: 'uuid-user-1',
+    user: null as any,
+    deployments: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
   beforeEach(async () => {
+    mockDockerPipeline = {
+      getWorkspacePath: jest.fn<any>().mockReturnValue('/tmp/test-workspace'),
+      generateImageTag: jest
+        .fn<any>()
+        .mockReturnValue('titan-sample-repo:a1b2c3d'),
+      generateContainerName: jest
+        .fn<any>()
+        .mockReturnValue('titan-app-sample-repo'),
+      cloneRepository: jest.fn<any>().mockResolvedValue({
+        logs: 'Cloned successfully',
+        durationMs: 50,
+      }),
+      buildImage: jest.fn<any>().mockResolvedValue({
+        logs: 'Built image successfully',
+        durationMs: 100,
+      }),
+      runContainer: jest.fn<any>().mockResolvedValue({
+        containerId: 'container-uuid-999',
+        logs: 'Container started',
+        durationMs: 40,
+      }),
+      checkHealth: jest.fn<any>().mockResolvedValue({
+        logs: 'Container healthy',
+        durationMs: 20,
+      }),
+      cleanup: jest.fn<any>().mockResolvedValue(undefined as never),
+    };
+
+    mockDeploymentRepo = {
+      update: jest.fn<any>().mockResolvedValue({ affected: 1 } as never),
+    };
+
+    mockProjectRepo = {
+      findOne: jest.fn<any>().mockResolvedValue(mockProject),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [DeploymentWorker],
+      providers: [
+        DeploymentWorker,
+        {
+          provide: DockerPipelineService,
+          useValue: mockDockerPipeline,
+        },
+        {
+          provide: getRepositoryToken(Deployment),
+          useValue: mockDeploymentRepo,
+        },
+        {
+          provide: getRepositoryToken(Project),
+          useValue: mockProjectRepo,
+        },
+      ],
     }).compile();
 
     worker = module.get<DeploymentWorker>(DeploymentWorker);
-    // Speed up unit tests by mocking delay to 0ms
-    jest
-      .spyOn(worker as any, 'simulateDelay')
-      .mockResolvedValue(undefined as never);
   });
 
   it('should be defined', () => {
@@ -36,7 +108,7 @@ describe('DeploymentWorker', () => {
   });
 
   describe('process', () => {
-    it('should successfully execute all deployment stages and return result', async () => {
+    it('should successfully execute all deployment stages, update DB and return result', async () => {
       const mockJob = {
         id: 'job-42',
         name: DEPLOY_JOB,
@@ -50,6 +122,38 @@ describe('DeploymentWorker', () => {
       expect(mockJob.updateProgress).toHaveBeenCalledWith(50);
       expect(mockJob.updateProgress).toHaveBeenCalledWith(75);
       expect(mockJob.updateProgress).toHaveBeenCalledWith(100);
+
+      expect(mockDockerPipeline.cloneRepository).toHaveBeenCalled();
+      expect(mockDockerPipeline.buildImage).toHaveBeenCalled();
+      expect(mockDockerPipeline.runContainer).toHaveBeenCalledWith(
+        'titan-sample-repo:a1b2c3d',
+        'titan-app-sample-repo',
+        8080,
+        { NODE_ENV: 'production' },
+      );
+      expect(mockDockerPipeline.checkHealth).toHaveBeenCalledWith(
+        'container-uuid-999',
+      );
+      expect(mockDockerPipeline.cleanup).toHaveBeenCalledWith(
+        '/tmp/test-workspace',
+      );
+
+      // Verificación de actualizaciones de estado en BD
+      expect(mockDeploymentRepo.update).toHaveBeenCalledWith(
+        'uuid-deployment-1',
+        expect.objectContaining({ status: DeploymentStatus.BUILDING }),
+      );
+      expect(mockDeploymentRepo.update).toHaveBeenCalledWith(
+        'uuid-deployment-1',
+        expect.objectContaining({ status: DeploymentStatus.DEPLOYING }),
+      );
+      expect(mockDeploymentRepo.update).toHaveBeenCalledWith(
+        'uuid-deployment-1',
+        expect.objectContaining({
+          status: DeploymentStatus.DEPLOYED,
+          containerId: 'container-uuid-999',
+        }),
+      );
 
       expect(result).toEqual(
         expect.objectContaining({
@@ -69,8 +173,31 @@ describe('DeploymentWorker', () => {
         'docker_deploy',
         'healthcheck',
       ]);
-      expect(result.stages.every((s) => s.status === 'success')).toBe(true);
-      expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should update DB to FAILED and cleanup workspace when a stage fails', async () => {
+      (mockDockerPipeline.buildImage as jest.Mock<any>).mockRejectedValue(
+        new Error('Docker build failed: syntax error'),
+      );
+
+      const mockJob = {
+        id: 'job-fail-1',
+        name: DEPLOY_JOB,
+        data: mockJobData,
+        updateProgress: jest.fn().mockResolvedValue(undefined as never),
+      } as unknown as Job<DeploymentJobData, any, string>;
+
+      await expect(worker.process(mockJob)).rejects.toThrow(
+        'Docker build failed: syntax error',
+      );
+
+      expect(mockDeploymentRepo.update).toHaveBeenCalledWith(
+        'uuid-deployment-1',
+        expect.objectContaining({ status: DeploymentStatus.FAILED }),
+      );
+      expect(mockDockerPipeline.cleanup).toHaveBeenCalledWith(
+        '/tmp/test-workspace',
+      );
     });
 
     it('should throw error when job name is unsupported', async () => {

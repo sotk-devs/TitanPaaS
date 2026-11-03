@@ -24,7 +24,7 @@ export class DockerPipelineService {
   private readonly logger = new Logger(DockerPipelineService.name);
 
   getWorkspacePath(repositoryName: string, commitSha: string): string {
-    const sanitizedRepo = repositoryName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sanitizedRepo = repositoryName.replace(/[^a-zA-Z0-9]/g, '_');
     const shortSha = commitSha.substring(0, 10);
     return join(tmpdir(), 'titan-paas', 'builds', sanitizedRepo, shortSha);
   }

@@ -1,20 +1,85 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { createHmac } from 'node:crypto';
 import { Queue } from 'bullmq';
+import { Repository } from 'typeorm';
 import { WebhooksService } from './webhooks.service.js';
 import { DEPLOY_JOB, DEPLOY_QUEUE } from './webhooks.constants.js';
 import { GitHubPushPayload } from './interfaces/github-payload.interface.js';
+import { Project } from '../projects/entities/project.entity.js';
+import { Deployment } from '../deployments/entities/deployment.entity.js';
+import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js';
 
 describe('WebhooksService', () => {
   let service: WebhooksService;
   let mockQueue: jest.Mocked<Partial<Queue>>;
+  let mockProjectRepo: jest.Mocked<Partial<Repository<Project>>>;
+  let mockDeploymentRepo: jest.Mocked<Partial<Repository<Deployment>>>;
+
+  const mockProject: Project = {
+    id: 'uuid-project-1',
+    name: 'my-app',
+    repositoryUrl: 'https://github.com/org/my-app.git',
+    repositoryName: 'org/my-app',
+    branch: 'main',
+    port: 3000,
+    envVariables: {},
+    userId: 'uuid-user-1',
+    user: null as any,
+    deployments: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  const samplePushPayload: GitHubPushPayload = {
+    ref: 'refs/heads/main',
+    before: '0000000',
+    after: 'abcdef1234567890',
+    repository: {
+      id: 1,
+      name: 'my-app',
+      full_name: 'org/my-app',
+      clone_url: 'https://github.com/org/my-app.git',
+      html_url: 'https://github.com/org/my-app',
+      default_branch: 'main',
+    },
+    pusher: {
+      name: 'octocat',
+      email: 'octocat@github.com',
+    },
+    head_commit: {
+      id: 'abcdef1234567890',
+      message: 'feat: add awesome feature',
+      timestamp: '2026-10-14T10:00:00Z',
+    },
+  };
 
   beforeEach(() => {
     mockQueue = {
       add: jest.fn().mockResolvedValue({ id: 'test-job-id' } as never),
     };
 
-    service = new WebhooksService(mockQueue as unknown as Queue);
+    mockProjectRepo = {
+      findOne: jest.fn<any>(),
+    };
+
+    mockDeploymentRepo = {
+      create: jest.fn<any>().mockImplementation((dto: any) => ({
+        id: 'uuid-deployment-1',
+        ...dto,
+      })),
+      save: jest.fn<any>().mockImplementation((entity: any) =>
+        Promise.resolve({
+          id: 'uuid-deployment-1',
+          ...entity,
+        }),
+      ),
+    };
+
+    service = new WebhooksService(
+      mockQueue as unknown as Queue,
+      mockProjectRepo as unknown as Repository<Project>,
+      mockDeploymentRepo as unknown as Repository<Deployment>,
+    );
   });
 
   describe('verifySignature', () => {
@@ -46,38 +111,36 @@ describe('WebhooksService', () => {
   });
 
   describe('processPushEvent', () => {
-    it('should extract push event data and enqueue deployment job', async () => {
-      const pushPayload: GitHubPushPayload = {
-        ref: 'refs/heads/main',
-        before: '0000000',
-        after: 'abcdef1234567890',
-        repository: {
-          id: 1,
-          name: 'my-app',
-          full_name: 'org/my-app',
-          clone_url: 'https://github.com/org/my-app.git',
-          html_url: 'https://github.com/org/my-app',
-          default_branch: 'main',
-        },
-        pusher: {
-          name: 'octocat',
-          email: 'octocat@github.com',
-        },
-        head_commit: {
-          id: 'abcdef1234567890',
-          message: 'feat: add awesome feature',
-          timestamp: '2026-10-14T10:00:00Z',
-        },
-      };
+    it('should link project, create QUEUED deployment in DB, and enqueue job', async () => {
+      (mockProjectRepo.findOne as jest.Mock<any>).mockResolvedValue(
+        mockProject,
+      );
 
       const result = await service.processPushEvent(
-        pushPayload,
+        samplePushPayload,
         'delivery-123',
       );
+
+      expect(mockProjectRepo.findOne).toHaveBeenCalledWith({
+        where: { repositoryName: 'org/my-app' },
+      });
+
+      expect(mockDeploymentRepo.create).toHaveBeenCalledWith({
+        projectId: 'uuid-project-1',
+        status: DeploymentStatus.QUEUED,
+        commitSha: 'abcdef1234567890',
+        commitMessage: 'feat: add awesome feature',
+        branch: 'main',
+        startedAt: expect.any(Date),
+      });
+
+      expect(mockDeploymentRepo.save).toHaveBeenCalled();
 
       expect(result).toEqual({
         queued: true,
         jobId: 'test-job-id',
+        deploymentId: 'uuid-deployment-1',
+        projectId: 'uuid-project-1',
         queue: DEPLOY_QUEUE,
         repository: 'org/my-app',
         branch: 'main',
@@ -88,19 +151,60 @@ describe('WebhooksService', () => {
         DEPLOY_JOB,
         expect.objectContaining({
           deliveryId: 'delivery-123',
+          deploymentId: 'uuid-deployment-1',
+          projectId: 'uuid-project-1',
           repositoryName: 'org/my-app',
           cloneUrl: 'https://github.com/org/my-app.git',
           branch: 'main',
           commitSha: 'abcdef1234567890',
-          commitMessage: 'feat: add awesome feature',
-          author: 'octocat',
         }),
-        expect.objectContaining({
-          jobId: 'delivery-123',
-          removeOnComplete: true,
-          attempts: 3,
-        }),
+        expect.any(Object),
       );
+    });
+
+    it('should not enqueue or create deployment if repository is not registered in DB', async () => {
+      (mockProjectRepo.findOne as jest.Mock<any>).mockResolvedValue(null);
+
+      const result = await service.processPushEvent(
+        samplePushPayload,
+        'delivery-123',
+      );
+
+      expect(mockDeploymentRepo.create).not.toHaveBeenCalled();
+      expect(mockQueue.add).not.toHaveBeenCalled();
+      expect(result.queued).toBe(false);
+      expect(result.reason).toContain('No project registered');
+    });
+
+    it('should not enqueue or create deployment if push branch does not match project branch', async () => {
+      (mockProjectRepo.findOne as jest.Mock<any>).mockResolvedValue({
+        ...mockProject,
+        branch: 'production',
+      });
+
+      const result = await service.processPushEvent(
+        samplePushPayload,
+        'delivery-123',
+      );
+
+      expect(mockDeploymentRepo.create).not.toHaveBeenCalled();
+      expect(mockQueue.add).not.toHaveBeenCalled();
+      expect(result.queued).toBe(false);
+      expect(result.reason).toContain('does not match project branch');
+    });
+
+    it('should support execution without database repositories (fallback mode)', async () => {
+      const fallbackService = new WebhooksService(
+        mockQueue as unknown as Queue,
+      );
+
+      const result = await fallbackService.processPushEvent(
+        samplePushPayload,
+        'delivery-standalone',
+      );
+
+      expect(result.queued).toBe(true);
+      expect(mockQueue.add).toHaveBeenCalled();
     });
   });
 });

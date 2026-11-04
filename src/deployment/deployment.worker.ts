@@ -13,6 +13,7 @@ import { DockerPipelineService } from './docker-pipeline.service.js';
 import { Deployment } from '../deployments/entities/deployment.entity.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js';
+import { LogsGateway } from '../logs/logs.gateway.js';
 
 @Processor(DEPLOY_QUEUE)
 export class DeploymentWorker extends WorkerHost {
@@ -26,6 +27,8 @@ export class DeploymentWorker extends WorkerHost {
     @Optional()
     @InjectRepository(Project)
     private readonly projectRepository?: Repository<Project>,
+    @Optional()
+    private readonly logsGateway?: LogsGateway,
   ) {
     super();
   }
@@ -45,11 +48,32 @@ export class DeploymentWorker extends WorkerHost {
     const startedAt = new Date().toISOString();
     let accumulatedLogs = '';
 
+    const emitLog = (chunk: string, stream: 'stdout' | 'stderr' = 'stdout') => {
+      if (data.deploymentId && this.logsGateway) {
+        this.logsGateway.emitLog(data.deploymentId, chunk, stream);
+      }
+    };
+
+    const emitStatus = (
+      status: DeploymentStatus,
+      progress?: number,
+      stage?: string,
+    ) => {
+      if (data.deploymentId && this.logsGateway) {
+        this.logsGateway.emitStatus(data.deploymentId, status, progress, stage);
+      }
+    };
+
     this.logger.log(
       `🚀 [Job #${job.id}] Iniciando pipeline de despliegue para ${data.repositoryName} (${data.branch})`,
     );
     this.logger.log(
       `📦 Commit: ${data.commitSha.substring(0, 7)} - "${data.commitMessage}" por @${data.author}`,
+    );
+
+    emitStatus(DeploymentStatus.BUILDING, 0, 'starting');
+    emitLog(
+      `🚀 Starting deployment pipeline for ${data.repositoryName} (${data.branch})\nCommit: ${data.commitSha.substring(0, 7)} - "${data.commitMessage}" by @${data.author}\n`,
     );
 
     // Obtener configuración de proyecto si existe
@@ -96,11 +120,17 @@ export class DeploymentWorker extends WorkerHost {
       this.logger.log(
         `📥 [Job #${job.id}] [1/4] Clonando repositorio desde ${data.cloneUrl}...`,
       );
+      emitStatus(DeploymentStatus.BUILDING, 10, 'clone');
+      emitLog(
+        `📥 [1/4] Cloning repository from ${data.cloneUrl} (${data.branch})...\n`,
+      );
+
       const cloneResult = await this.dockerPipeline.cloneRepository(
         data.cloneUrl,
         data.branch,
         data.commitSha,
         workspaceDir,
+        emitLog,
       );
       accumulatedLogs += `=== STAGE 1: CLONE ===\n${cloneResult.logs}\n\n`;
       await job.updateProgress(25);
@@ -114,9 +144,13 @@ export class DeploymentWorker extends WorkerHost {
       this.logger.log(
         `🔨 [Job #${job.id}] [2/4] Compilando imagen Docker ${imageTag}...`,
       );
+      emitStatus(DeploymentStatus.BUILDING, 30, 'build');
+      emitLog(`🔨 [2/4] Building Docker image ${imageTag}...\n`);
+
       const buildResult = await this.dockerPipeline.buildImage(
         imageTag,
         workspaceDir,
+        emitLog,
       );
       accumulatedLogs += `=== STAGE 2: BUILD ===\n${buildResult.logs}\n\n`;
       await job.updateProgress(50);
@@ -133,10 +167,15 @@ export class DeploymentWorker extends WorkerHost {
         });
       }
 
-      // Stage 3: Creación y ejecución de contenedor Docker con soporte Traefik
+      // Stage 3: Creación y ejecución de contenedor Docker con soporte Traefik y streaming de logs
       this.logger.log(
         `🐳 [Job #${job.id}] [3/4] Desplegando contenedor Docker ${containerName} en puerto ${port}...`,
       );
+      emitStatus(DeploymentStatus.DEPLOYING, 60, 'docker_deploy');
+      emitLog(
+        `🐳 [3/4] Deploying Docker container ${containerName} on port ${port}...\n`,
+      );
+
       const subdomain = project?.name
         ? this.dockerPipeline.generateSubdomain(project.name)
         : this.dockerPipeline.generateSubdomain(data.repositoryName);
@@ -150,6 +189,7 @@ export class DeploymentWorker extends WorkerHost {
           subdomain,
           baseDomain: process.env.BASE_DOMAIN || 'localhost',
           network: process.env.DOCKER_NETWORK || 'titan-network',
+          onLog: emitLog,
         },
       );
       containerId = runResult.containerId;
@@ -158,6 +198,7 @@ export class DeploymentWorker extends WorkerHost {
         this.logger.log(
           `🌐 [Job #${job.id}] Enrutamiento dinámico activo en Traefik: ${deploymentUrl}`,
         );
+        emitLog(`🌐 Dynamic routing active at Traefik: ${deploymentUrl}\n`);
       }
       accumulatedLogs += `=== STAGE 3: DOCKER DEPLOY ===\n${runResult.logs}\n\n`;
       await job.updateProgress(75);
@@ -171,7 +212,15 @@ export class DeploymentWorker extends WorkerHost {
       this.logger.log(
         `🩺 [Job #${job.id}] [4/4] Verificando estado de salud del contenedor ${containerId}...`,
       );
-      const healthResult = await this.dockerPipeline.checkHealth(containerId);
+      emitStatus(DeploymentStatus.DEPLOYING, 85, 'healthcheck');
+      emitLog(
+        `🩺 [4/4] Verifying health status of container ${containerId}...\n`,
+      );
+
+      const healthResult = await this.dockerPipeline.checkHealth(
+        containerId,
+        emitLog,
+      );
       accumulatedLogs += `=== STAGE 4: HEALTHCHECK ===\n${healthResult.logs}\n\n`;
       await job.updateProgress(100);
       stages.push({
@@ -197,6 +246,8 @@ export class DeploymentWorker extends WorkerHost {
       this.logger.log(
         `✅ [Job #${job.id}] Despliegue completado exitosamente en ${durationMs}ms para ${data.repositoryName} (${data.branch})`,
       );
+      emitStatus(DeploymentStatus.DEPLOYED, 100, 'completed');
+      emitLog(`✅ Deployment completed successfully in ${durationMs}ms\n`);
 
       return {
         jobId: String(job.id),
@@ -213,7 +264,11 @@ export class DeploymentWorker extends WorkerHost {
       };
     } catch (error) {
       const finishedAt = new Date().toISOString();
-      accumulatedLogs += `\n❌ ERROR: ${(error as Error).message}\n`;
+      const errorMessage = (error as Error).message;
+      accumulatedLogs += `\n❌ ERROR: ${errorMessage}\n`;
+
+      emitStatus(DeploymentStatus.FAILED, undefined, 'failed');
+      emitLog(`\n❌ ERROR: ${errorMessage}\n`, 'stderr');
 
       if (data.deploymentId && this.deploymentRepository) {
         await this.deploymentRepository.update(data.deploymentId, {

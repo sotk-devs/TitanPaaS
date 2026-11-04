@@ -20,11 +20,14 @@ export interface ContainerRunResult extends PipelineStepResult {
   url?: string;
 }
 
+export type LogCallback = (chunk: string, stream: 'stdout' | 'stderr') => void;
+
 export interface RunContainerOptions {
   subdomain?: string;
   baseDomain?: string;
   network?: string;
   labels?: Record<string, string>;
+  onLog?: LogCallback;
 }
 
 @Injectable()
@@ -64,6 +67,7 @@ export class DockerPipelineService {
     command: string,
     args: string[],
     cwd?: string,
+    onLog?: LogCallback,
   ): Promise<CommandExecutionResult> {
     return new Promise((resolve, reject) => {
       this.logger.debug(`Ejecutando: ${command} ${args.join(' ')}`);
@@ -77,11 +81,15 @@ export class DockerPipelineService {
       let stderr = '';
 
       child.stdout?.on('data', (data) => {
-        stdout += data.toString();
+        const text = data.toString();
+        stdout += text;
+        onLog?.(text, 'stdout');
       });
 
       child.stderr?.on('data', (data) => {
-        stderr += data.toString();
+        const text = data.toString();
+        stderr += text;
+        onLog?.(text, 'stderr');
       });
 
       child.on('error', (err) => {
@@ -105,12 +113,13 @@ export class DockerPipelineService {
     branch: string,
     commitSha: string,
     targetDir: string,
+    onLog?: LogCallback,
   ): Promise<PipelineStepResult> {
     const start = Date.now();
     await rm(targetDir, { recursive: true, force: true });
     await mkdir(targetDir, { recursive: true });
 
-    const cloneResult = await this.executeCommand('git', [
+    const cloneArgs = [
       'clone',
       '--depth',
       '1',
@@ -118,7 +127,11 @@ export class DockerPipelineService {
       branch,
       cloneUrl,
       targetDir,
-    ]);
+    ];
+
+    const cloneResult = onLog
+      ? await this.executeCommand('git', cloneArgs, undefined, onLog)
+      : await this.executeCommand('git', cloneArgs);
 
     let logs =
       cloneResult.stdout +
@@ -127,11 +140,18 @@ export class DockerPipelineService {
     // Si se especifica un commit SHA distinto al HEAD de la rama, intentar checkout
     if (commitSha) {
       try {
-        const checkoutResult = await this.executeCommand(
-          'git',
-          ['checkout', commitSha],
-          targetDir,
-        );
+        const checkoutResult = onLog
+          ? await this.executeCommand(
+              'git',
+              ['checkout', commitSha],
+              targetDir,
+              onLog,
+            )
+          : await this.executeCommand(
+              'git',
+              ['checkout', commitSha],
+              targetDir,
+            );
         logs += `\n${checkoutResult.stdout}${checkoutResult.stderr ? `\n${checkoutResult.stderr}` : ''}`;
       } catch {
         // En clones superficiales depth=1 el commit específico ya es el head de la rama
@@ -147,13 +167,13 @@ export class DockerPipelineService {
   async buildImage(
     imageTag: string,
     contextDir: string,
+    onLog?: LogCallback,
   ): Promise<PipelineStepResult> {
     const start = Date.now();
-    const result = await this.executeCommand(
-      'docker',
-      ['build', '-t', imageTag, '.'],
-      contextDir,
-    );
+    const buildArgs = ['build', '-t', imageTag, '.'];
+    const result = onLog
+      ? await this.executeCommand('docker', buildArgs, contextDir, onLog)
+      : await this.executeCommand('docker', buildArgs, contextDir);
 
     const logs = (
       result.stdout + (result.stderr ? `\n${result.stderr}` : '')
@@ -170,7 +190,8 @@ export class DockerPipelineService {
     containerName: string,
     port: number,
     envVariables: Record<string, string> = {},
-    options?: RunContainerOptions,
+    optionsOrOnLog?: RunContainerOptions | LogCallback,
+    onLogCallback?: LogCallback,
   ): Promise<ContainerRunResult> {
     const start = Date.now();
 
@@ -185,6 +206,14 @@ export class DockerPipelineService {
     for (const [key, val] of Object.entries(envVariables)) {
       envArgs.push('-e', `${key}=${val}`);
     }
+
+    const isCallback = typeof optionsOrOnLog === 'function';
+    const options: RunContainerOptions | undefined = isCallback
+      ? undefined
+      : optionsOrOnLog;
+    const onLog: LogCallback | undefined = isCallback
+      ? optionsOrOnLog
+      : (options?.onLog ?? onLogCallback);
 
     const labelArgs: string[] = [];
     let url: string | undefined;
@@ -231,7 +260,9 @@ export class DockerPipelineService {
       imageTag,
     ];
 
-    const result = await this.executeCommand('docker', args);
+    const result = onLog
+      ? await this.executeCommand('docker', args, undefined, onLog)
+      : await this.executeCommand('docker', args);
     const containerId = result.stdout.trim().split('\n')[0];
 
     const logs = url
@@ -246,14 +277,20 @@ export class DockerPipelineService {
     };
   }
 
-  async checkHealth(containerId: string): Promise<PipelineStepResult> {
+  async checkHealth(
+    containerId: string,
+    onLog?: LogCallback,
+  ): Promise<PipelineStepResult> {
     const start = Date.now();
-    const result = await this.executeCommand('docker', [
+    const inspectArgs = [
       'inspect',
       '--format',
       '{{.State.Status}}',
       containerId,
-    ]);
+    ];
+    const result = onLog
+      ? await this.executeCommand('docker', inspectArgs, undefined, onLog)
+      : await this.executeCommand('docker', inspectArgs);
 
     const status = result.stdout.trim();
     if (status !== 'running') {

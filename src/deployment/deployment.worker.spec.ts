@@ -10,12 +10,14 @@ import { DeploymentJobData } from '../webhooks/interfaces/github-payload.interfa
 import { Deployment } from '../deployments/entities/deployment.entity.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js';
+import { LogsGateway } from '../logs/logs.gateway.js';
 
 describe('DeploymentWorker', () => {
   let worker: DeploymentWorker;
   let mockDockerPipeline: jest.Mocked<Partial<DockerPipelineService>>;
   let mockDeploymentRepo: jest.Mocked<Partial<Repository<Deployment>>>;
   let mockProjectRepo: jest.Mocked<Partial<Repository<Project>>>;
+  let mockLogsGateway: jest.Mocked<Partial<LogsGateway>>;
 
   const mockJobData: DeploymentJobData = {
     deliveryId: 'uuid-1234',
@@ -84,6 +86,11 @@ describe('DeploymentWorker', () => {
       findOne: jest.fn<any>().mockResolvedValue(mockProject),
     };
 
+    mockLogsGateway = {
+      emitLog: jest.fn(),
+      emitStatus: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DeploymentWorker,
@@ -99,6 +106,10 @@ describe('DeploymentWorker', () => {
           provide: getRepositoryToken(Project),
           useValue: mockProjectRepo,
         },
+        {
+          provide: LogsGateway,
+          useValue: mockLogsGateway,
+        },
       ],
     }).compile();
 
@@ -110,7 +121,7 @@ describe('DeploymentWorker', () => {
   });
 
   describe('process', () => {
-    it('should successfully execute all deployment stages, configure Traefik routing, update DB and return result', async () => {
+    it('should successfully execute all deployment stages, configure Traefik routing, update DB and stream logs via LogsGateway', async () => {
       const mockJob = {
         id: 'job-42',
         name: DEPLOY_JOB,
@@ -139,14 +150,31 @@ describe('DeploymentWorker', () => {
           subdomain: 'sample-project',
           baseDomain: 'localhost',
           network: 'titan-network',
+          onLog: expect.any(Function),
         }),
       );
       expect(mockDockerPipeline.checkHealth).toHaveBeenCalledWith(
         'container-uuid-999',
+        expect.any(Function),
       );
       expect(mockDockerPipeline.cleanup).toHaveBeenCalledWith(
         '/tmp/test-workspace',
       );
+
+      // Verificación de emisiones en tiempo real a LogsGateway
+      expect(mockLogsGateway.emitStatus).toHaveBeenCalledWith(
+        'uuid-deployment-1',
+        DeploymentStatus.BUILDING,
+        0,
+        'starting',
+      );
+      expect(mockLogsGateway.emitStatus).toHaveBeenCalledWith(
+        'uuid-deployment-1',
+        DeploymentStatus.DEPLOYED,
+        100,
+        'completed',
+      );
+      expect(mockLogsGateway.emitLog).toHaveBeenCalled();
 
       // Verificación de actualizaciones de estado en BD
       expect(mockDeploymentRepo.update).toHaveBeenCalledWith(
@@ -186,7 +214,7 @@ describe('DeploymentWorker', () => {
       ]);
     });
 
-    it('should update DB to FAILED and cleanup workspace when a stage fails', async () => {
+    it('should update DB to FAILED, stream error to LogsGateway, and cleanup workspace when a stage fails', async () => {
       (mockDockerPipeline.buildImage as jest.Mock<any>).mockRejectedValue(
         new Error('Docker build failed: syntax error'),
       );
@@ -200,6 +228,18 @@ describe('DeploymentWorker', () => {
 
       await expect(worker.process(mockJob)).rejects.toThrow(
         'Docker build failed: syntax error',
+      );
+
+      expect(mockLogsGateway.emitStatus).toHaveBeenCalledWith(
+        'uuid-deployment-1',
+        DeploymentStatus.FAILED,
+        undefined,
+        'failed',
+      );
+      expect(mockLogsGateway.emitLog).toHaveBeenCalledWith(
+        'uuid-deployment-1',
+        expect.stringContaining('Docker build failed: syntax error'),
+        'stderr',
       );
 
       expect(mockDeploymentRepo.update).toHaveBeenCalledWith(

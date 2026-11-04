@@ -6,6 +6,7 @@ import { DeploymentWorker } from './deployment.worker.js';
 import { DockerPipelineService } from './docker-pipeline.service.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { Deployment } from '../deployments/entities/deployment.entity.js';
+import { LogsModule } from '../logs/logs.module.js';
 
 const databaseImports =
   process.env.NODE_ENV !== 'test'
@@ -17,6 +18,7 @@ const databaseImports =
     BullModule.registerQueue({
       name: DEPLOY_QUEUE,
     }),
+    LogsModule,
     ...databaseImports,
   ],
   providers: [DeploymentWorker, DockerPipelineService],

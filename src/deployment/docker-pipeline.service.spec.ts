@@ -1,8 +1,11 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { DockerPipelineService } from './docker-pipeline.service.js';
 
 describe('DockerPipelineService', () => {
   let service: DockerPipelineService;
+  const testDir = join(tmpdir(), 'titan-paas-test-dir');
 
   beforeEach(() => {
     service = new DockerPipelineService();
@@ -52,7 +55,7 @@ describe('DockerPipelineService', () => {
         'https://github.com/org/repo.git',
         'main',
         'abc1234',
-        '/tmp/test-dir',
+        testDir,
       );
 
       expect(service.executeCommand).toHaveBeenCalledWith('git', [
@@ -62,7 +65,7 @@ describe('DockerPipelineService', () => {
         '--branch',
         'main',
         'https://github.com/org/repo.git',
-        '/tmp/test-dir',
+        testDir,
       ]);
       expect(result.logs).toContain('Cloning into target...');
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
@@ -80,7 +83,7 @@ describe('DockerPipelineService', () => {
         'https://github.com/org/repo.git',
         'main',
         '',
-        '/tmp/test-dir',
+        testDir,
         mockOnLog,
       );
 
@@ -101,15 +104,12 @@ describe('DockerPipelineService', () => {
         exitCode: 0,
       });
 
-      const result = await service.buildImage(
-        'my-image:latest',
-        '/tmp/test-dir',
-      );
+      const result = await service.buildImage('my-image:latest', testDir);
 
       expect(service.executeCommand).toHaveBeenCalledWith(
         'docker',
         ['build', '-t', 'my-image:latest', '.'],
-        '/tmp/test-dir',
+        testDir,
       );
       expect(result.logs).toContain('Successfully built');
     });
@@ -122,12 +122,12 @@ describe('DockerPipelineService', () => {
         exitCode: 0,
       });
 
-      await service.buildImage('my-image:latest', '/tmp/test-dir', mockOnLog);
+      await service.buildImage('my-image:latest', testDir, mockOnLog);
 
       expect(service.executeCommand).toHaveBeenCalledWith(
         'docker',
         ['build', '-t', 'my-image:latest', '.'],
-        '/tmp/test-dir',
+        testDir,
         mockOnLog,
       );
     });

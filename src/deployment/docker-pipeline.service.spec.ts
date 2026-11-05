@@ -28,6 +28,18 @@ describe('DockerPipelineService', () => {
     expect(path).toContain('sotk_devs_sample_repo');
   });
 
+  describe('generateSubdomain', () => {
+    it('should extract and sanitize subdomain from repository name', () => {
+      expect(service.generateSubdomain('sotk-devs/sample-repo')).toBe(
+        'sample-repo',
+      );
+      expect(service.generateSubdomain('My_Awesome_Project!')).toBe(
+        'my-awesome-project',
+      );
+      expect(service.generateSubdomain('simple-app')).toBe('simple-app');
+    });
+  });
+
   describe('cloneRepository', () => {
     it('should invoke git clone and return logs and duration', async () => {
       jest.spyOn(service, 'executeCommand').mockResolvedValue({
@@ -153,6 +165,56 @@ describe('DockerPipelineService', () => {
         'my-image:latest',
       ]);
       expect(result.containerId).toBe('container-id-12345');
+    });
+
+    it('should configure Traefik labels and network when subdomain is provided in options', async () => {
+      jest
+        .spyOn(service, 'executeCommand')
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 })
+        .mockResolvedValueOnce({
+          stdout: 'container-id-traefik\n',
+          stderr: '',
+          exitCode: 0,
+        });
+
+      const result = await service.runContainer(
+        'titan-app:latest',
+        'titan-app-demo',
+        3000,
+        { PORT: '3000' },
+        {
+          subdomain: 'demo-app',
+          baseDomain: 'localhost',
+          network: 'titan-network',
+        },
+      );
+
+      expect(service.executeCommand).toHaveBeenCalledWith('docker', [
+        'run',
+        '-d',
+        '--name',
+        'titan-app-demo',
+        '--network',
+        'titan-network',
+        '-p',
+        '3000:3000',
+        '--label',
+        'traefik.enable=true',
+        '--label',
+        'traefik.http.routers.titan-app-demo.rule=Host(`demo-app.localhost`)',
+        '--label',
+        'traefik.http.routers.titan-app-demo.entrypoints=web',
+        '--label',
+        'traefik.http.services.titan-app-demo.loadbalancer.server.port=3000',
+        '--label',
+        'traefik.docker.network=titan-network',
+        '-e',
+        'PORT=3000',
+        'titan-app:latest',
+      ]);
+      expect(result.containerId).toBe('container-id-traefik');
+      expect(result.url).toBe('http://demo-app.localhost');
+      expect(result.logs).toContain('http://demo-app.localhost');
     });
   });
 

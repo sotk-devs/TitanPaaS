@@ -18,4 +18,5 @@ export interface DeploymentResult {
   finishedAt: string;
   durationMs: number;
   stages: DeploymentStage[];
+  url?: string;
 }

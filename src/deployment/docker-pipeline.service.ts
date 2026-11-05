@@ -17,9 +17,18 @@ export interface PipelineStepResult {
 
 export interface ContainerRunResult extends PipelineStepResult {
   containerId: string;
+  url?: string;
 }
 
 export type LogCallback = (chunk: string, stream: 'stdout' | 'stderr') => void;
+
+export interface RunContainerOptions {
+  subdomain?: string;
+  baseDomain?: string;
+  network?: string;
+  labels?: Record<string, string>;
+  onLog?: LogCallback;
+}
 
 @Injectable()
 export class DockerPipelineService {
@@ -44,6 +53,14 @@ export class DockerPipelineService {
       .toLowerCase()
       .replace(/[^a-z0-9_-]/g, '-');
     return `titan-app-${sanitizedRepo}`;
+  }
+
+  generateSubdomain(name: string): string {
+    const rawName = name.includes('/') ? name.split('/').pop() || name : name;
+    return rawName
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/^-+|-+$/g, '');
   }
 
   async executeCommand(
@@ -173,7 +190,8 @@ export class DockerPipelineService {
     containerName: string,
     port: number,
     envVariables: Record<string, string> = {},
-    onLog?: LogCallback,
+    optionsOrOnLog?: RunContainerOptions | LogCallback,
+    onLogCallback?: LogCallback,
   ): Promise<ContainerRunResult> {
     const start = Date.now();
 
@@ -189,13 +207,55 @@ export class DockerPipelineService {
       envArgs.push('-e', `${key}=${val}`);
     }
 
+    const isCallback = typeof optionsOrOnLog === 'function';
+    const options: RunContainerOptions | undefined = isCallback
+      ? undefined
+      : optionsOrOnLog;
+    const onLog: LogCallback | undefined = isCallback
+      ? optionsOrOnLog
+      : (options?.onLog ?? onLogCallback);
+
+    const labelArgs: string[] = [];
+    let url: string | undefined;
+    const network = options?.network;
+
+    if (options?.subdomain) {
+      const baseDomain =
+        options.baseDomain || process.env.BASE_DOMAIN || 'localhost';
+      const subdomain = options.subdomain;
+      const routerName = containerName.replace(/[^a-zA-Z0-9_-]/g, '-');
+      url = `http://${subdomain}.${baseDomain}`;
+
+      const traefikLabels: Record<string, string> = {
+        'traefik.enable': 'true',
+        [`traefik.http.routers.${routerName}.rule`]: `Host(\`${subdomain}.${baseDomain}\`)`,
+        [`traefik.http.routers.${routerName}.entrypoints`]: 'web',
+        [`traefik.http.services.${routerName}.loadbalancer.server.port`]:
+          String(port),
+        ...(network ? { 'traefik.docker.network': network } : {}),
+        ...options.labels,
+      };
+
+      for (const [key, val] of Object.entries(traefikLabels)) {
+        labelArgs.push('--label', `${key}=${val}`);
+      }
+    } else if (options?.labels) {
+      for (const [key, val] of Object.entries(options.labels)) {
+        labelArgs.push('--label', `${key}=${val}`);
+      }
+    }
+
+    const networkArgs: string[] = network ? ['--network', network] : [];
+
     const args = [
       'run',
       '-d',
       '--name',
       containerName,
+      ...networkArgs,
       '-p',
       `${port}:${port}`,
+      ...labelArgs,
       ...envArgs,
       imageTag,
     ];
@@ -205,9 +265,14 @@ export class DockerPipelineService {
       : await this.executeCommand('docker', args);
     const containerId = result.stdout.trim().split('\n')[0];
 
+    const logs = url
+      ? `Container ${containerName} started with ID: ${containerId} (routed at ${url})`
+      : `Container ${containerName} started with ID: ${containerId}`;
+
     return {
       containerId,
-      logs: `Container ${containerName} started with ID: ${containerId}`,
+      url,
+      logs,
       durationMs: Date.now() - start,
     };
   }

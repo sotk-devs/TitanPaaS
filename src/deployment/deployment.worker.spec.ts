@@ -56,6 +56,7 @@ describe('DeploymentWorker', () => {
       generateContainerName: jest
         .fn<any>()
         .mockReturnValue('titan-app-sample-repo'),
+      generateSubdomain: jest.fn<any>().mockReturnValue('sample-project'),
       cloneRepository: jest.fn<any>().mockResolvedValue({
         logs: 'Cloned successfully',
         durationMs: 50,
@@ -66,7 +67,8 @@ describe('DeploymentWorker', () => {
       }),
       runContainer: jest.fn<any>().mockResolvedValue({
         containerId: 'container-uuid-999',
-        logs: 'Container started',
+        url: 'http://sample-project.localhost',
+        logs: 'Container started with ID: container-uuid-999 (routed at http://sample-project.localhost)',
         durationMs: 40,
       }),
       checkHealth: jest.fn<any>().mockResolvedValue({
@@ -119,7 +121,7 @@ describe('DeploymentWorker', () => {
   });
 
   describe('process', () => {
-    it('should successfully execute all deployment stages, update DB and stream logs via LogsGateway', async () => {
+    it('should successfully execute all deployment stages, configure Traefik routing, update DB and stream logs via LogsGateway', async () => {
       const mockJob = {
         id: 'job-42',
         name: DEPLOY_JOB,
@@ -136,12 +138,20 @@ describe('DeploymentWorker', () => {
 
       expect(mockDockerPipeline.cloneRepository).toHaveBeenCalled();
       expect(mockDockerPipeline.buildImage).toHaveBeenCalled();
+      expect(mockDockerPipeline.generateSubdomain).toHaveBeenCalledWith(
+        'sample-project',
+      );
       expect(mockDockerPipeline.runContainer).toHaveBeenCalledWith(
         'titan-sample-repo:a1b2c3d',
         'titan-app-sample-repo',
         8080,
         { NODE_ENV: 'production' },
-        expect.any(Function),
+        expect.objectContaining({
+          subdomain: 'sample-project',
+          baseDomain: 'localhost',
+          network: 'titan-network',
+          onLog: expect.any(Function),
+        }),
       );
       expect(mockDockerPipeline.checkHealth).toHaveBeenCalledWith(
         'container-uuid-999',
@@ -191,6 +201,7 @@ describe('DeploymentWorker', () => {
           branch: 'main',
           commitSha: 'a1b2c3d4e5f6789012345678901234567890abcd',
           status: 'completed',
+          url: 'http://sample-project.localhost',
         }),
       );
 

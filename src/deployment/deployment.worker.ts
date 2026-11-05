@@ -79,9 +79,10 @@ export class DeploymentWorker extends WorkerHost {
     // Obtener configuración de proyecto si existe
     let port = 3000;
     let envVariables: Record<string, string> = {};
+    let project: Project | null = null;
 
     if (data.projectId && this.projectRepository) {
-      const project = await this.projectRepository.findOne({
+      project = await this.projectRepository.findOne({
         where: { id: data.projectId },
       });
       if (project) {
@@ -104,6 +105,7 @@ export class DeploymentWorker extends WorkerHost {
     );
 
     let containerId: string;
+    let deploymentUrl: string | undefined;
 
     try {
       // Notificar estado BUILDING en base de datos
@@ -165,7 +167,7 @@ export class DeploymentWorker extends WorkerHost {
         });
       }
 
-      // Stage 3: Creación y ejecución de contenedor Docker
+      // Stage 3: Creación y ejecución de contenedor Docker con soporte Traefik y streaming de logs
       this.logger.log(
         `🐳 [Job #${job.id}] [3/4] Desplegando contenedor Docker ${containerName} en puerto ${port}...`,
       );
@@ -174,14 +176,30 @@ export class DeploymentWorker extends WorkerHost {
         `🐳 [3/4] Deploying Docker container ${containerName} on port ${port}...\n`,
       );
 
+      const subdomain = project?.name
+        ? this.dockerPipeline.generateSubdomain(project.name)
+        : this.dockerPipeline.generateSubdomain(data.repositoryName);
+
       const runResult = await this.dockerPipeline.runContainer(
         imageTag,
         containerName,
         port,
         envVariables,
-        emitLog,
+        {
+          subdomain,
+          baseDomain: process.env.BASE_DOMAIN || 'localhost',
+          network: process.env.DOCKER_NETWORK || 'titan-network',
+          onLog: emitLog,
+        },
       );
       containerId = runResult.containerId;
+      deploymentUrl = runResult.url;
+      if (deploymentUrl) {
+        this.logger.log(
+          `🌐 [Job #${job.id}] Enrutamiento dinámico activo en Traefik: ${deploymentUrl}`,
+        );
+        emitLog(`🌐 Dynamic routing active at Traefik: ${deploymentUrl}\n`);
+      }
       accumulatedLogs += `=== STAGE 3: DOCKER DEPLOY ===\n${runResult.logs}\n\n`;
       await job.updateProgress(75);
       stages.push({
@@ -242,6 +260,7 @@ export class DeploymentWorker extends WorkerHost {
         finishedAt,
         durationMs,
         stages,
+        url: deploymentUrl,
       };
     } catch (error) {
       const finishedAt = new Date().toISOString();

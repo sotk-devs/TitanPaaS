@@ -6,4 +6,5 @@ export enum DeploymentStatus {
   DEPLOYED = 'DEPLOYED',
   FAILED = 'FAILED',
   STOPPED = 'STOPPED',
+  CANCELLED = 'CANCELLED',
 }

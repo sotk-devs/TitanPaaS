@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { spawn } from 'node:child_process';
-import { rm, mkdir } from 'node:fs/promises';
+import { access, rm, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -18,6 +18,12 @@ export interface PipelineStepResult {
 export interface ContainerRunResult extends PipelineStepResult {
   containerId: string;
   url?: string;
+}
+
+export interface RuntimeDetectionResult {
+  hasDockerfile: boolean;
+  language?: string;
+  buildTool: 'docker' | 'nixpacks';
 }
 
 export type LogCallback = (chunk: string, stream: 'stdout' | 'stderr') => void;
@@ -164,7 +170,68 @@ export class DockerPipelineService {
     };
   }
 
-  async buildImage(
+  async hasDockerfile(contextDir: string): Promise<boolean> {
+    const candidates = ['Dockerfile', 'dockerfile'];
+    for (const file of candidates) {
+      try {
+        await access(join(contextDir, file));
+        return true;
+      } catch (error) {
+        void error;
+      }
+    }
+    return false;
+  }
+
+  async detectRuntime(contextDir: string): Promise<RuntimeDetectionResult> {
+    if (await this.hasDockerfile(contextDir)) {
+      return {
+        hasDockerfile: true,
+        buildTool: 'docker',
+      };
+    }
+
+    const checks: Array<{ language: string; files: string[] }> = [
+      { language: 'Node.js', files: ['package.json'] },
+      {
+        language: 'Python',
+        files: ['requirements.txt', 'pyproject.toml', 'Pipfile', 'setup.py'],
+      },
+      { language: 'Go', files: ['go.mod', 'main.go'] },
+      { language: 'Rust', files: ['Cargo.toml'] },
+      { language: 'PHP', files: ['composer.json', 'index.php'] },
+      {
+        language: 'Java',
+        files: ['pom.xml', 'build.gradle', 'build.gradle.kts'],
+      },
+      { language: 'Ruby', files: ['Gemfile'] },
+      { language: 'Deno', files: ['deno.json', 'deno.jsonc'] },
+      { language: 'Elixir', files: ['mix.exs'] },
+    ];
+
+    for (const check of checks) {
+      for (const file of check.files) {
+        try {
+          await access(join(contextDir, file));
+          return {
+            hasDockerfile: false,
+            language: check.language,
+            buildTool: 'nixpacks',
+          };
+        } catch (error) {
+          void error;
+        }
+      }
+    }
+
+    return {
+      hasDockerfile: false,
+      language: 'Unknown',
+      buildTool: 'nixpacks',
+    };
+  }
+
+  async buildWithDocker(
     imageTag: string,
     contextDir: string,
     onLog?: LogCallback,
@@ -183,6 +250,51 @@ export class DockerPipelineService {
       logs,
       durationMs: Date.now() - start,
     };
+  }
+
+  async buildWithNixpacks(
+    imageTag: string,
+    contextDir: string,
+    onLog?: LogCallback,
+  ): Promise<PipelineStepResult> {
+    const start = Date.now();
+    const nixpacksArgs = ['build', '.', '--name', imageTag];
+    const result = onLog
+      ? await this.executeCommand('nixpacks', nixpacksArgs, contextDir, onLog)
+      : await this.executeCommand('nixpacks', nixpacksArgs, contextDir);
+
+    const logs = (
+      result.stdout + (result.stderr ? `\n${result.stderr}` : '')
+    ).trim();
+
+    return {
+      logs,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  async buildImage(
+    imageTag: string,
+    contextDir: string,
+    onLog?: LogCallback,
+  ): Promise<PipelineStepResult> {
+    const runtime = await this.detectRuntime(contextDir);
+
+    if (runtime.hasDockerfile) {
+      onLog?.(
+        'Dockerfile detected. Using Docker build pipeline...\n',
+        'stdout',
+      );
+      return this.buildWithDocker(imageTag, contextDir, onLog);
+    }
+
+    const langMsg =
+      runtime.language && runtime.language !== 'Unknown'
+        ? `No Dockerfile found. Auto-detected ${runtime.language} runtime. Using Nixpacks build pipeline...\n`
+        : 'No Dockerfile found. Using Nixpacks build pipeline...\n';
+    onLog?.(langMsg, 'stdout');
+
+    return this.buildWithNixpacks(imageTag, contextDir, onLog);
   }
 
   async runContainer(

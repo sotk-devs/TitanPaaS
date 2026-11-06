@@ -52,6 +52,12 @@ describe('DeploymentsController', () => {
         ...mockDeployment,
         status: DeploymentStatus.CANCELLED,
       }),
+      rollbackDeployment: jest.fn<any>().mockResolvedValue({
+        ...mockDeployment,
+        id: 'rollback-deployment-id',
+        status: DeploymentStatus.QUEUED,
+        jobId: 'bull-rollback-job-123',
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -143,6 +149,31 @@ describe('DeploymentsController', () => {
       expect(result).toEqual({
         ...mockDeployment,
         status: DeploymentStatus.CANCELLED,
+      });
+    });
+  });
+
+  describe('rollbackDeployment', () => {
+    it('should call service.rollbackDeployment with user id, deployment id, dto, and user profile', async () => {
+      const dto = { reason: 'critical bug' };
+
+      const result = await controller.rollbackDeployment(
+        mockReq as any,
+        deploymentId,
+        dto,
+      );
+
+      expect(mockDeploymentsService.rollbackDeployment).toHaveBeenCalledWith(
+        mockUser.id,
+        deploymentId,
+        dto,
+        mockUser,
+      );
+      expect(result).toEqual({
+        ...mockDeployment,
+        id: 'rollback-deployment-id',
+        status: DeploymentStatus.QUEUED,
+        jobId: 'bull-rollback-job-123',
       });
     });
   });

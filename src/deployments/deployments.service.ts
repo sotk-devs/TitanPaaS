@@ -14,6 +14,7 @@ import { Deployment } from './entities/deployment.entity.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { DeploymentPaginationQueryDto } from './dto/deployment-pagination-query.dto.js';
 import { TriggerDeployDto } from './dto/trigger-deploy.dto.js';
+import { RollbackDeployDto } from './dto/rollback-deploy.dto.js';
 import { DeploymentStatus } from './enums/deployment-status.enum.js';
 import { DEPLOY_QUEUE, DEPLOY_JOB } from '../webhooks/webhooks.constants.js';
 import type { DeploymentJobData } from '../webhooks/interfaces/github-payload.interface.js';
@@ -267,5 +268,99 @@ export class DeploymentsService {
     );
 
     return savedDeployment;
+  }
+
+  async rollbackDeployment(
+    userId: string,
+    id: string,
+    dto?: RollbackDeployDto,
+    user?: { id?: string; email?: string; name?: string },
+  ): Promise<Deployment & { jobId?: string }> {
+    const deployment = await this.deploymentRepository.findOne({
+      where: { id },
+      relations: ['project'],
+    });
+
+    if (!deployment || deployment.project?.userId !== userId) {
+      throw new NotFoundException(
+        `Despliegue #${id} no encontrado o no pertenece a un proyecto del usuario autenticado.`,
+      );
+    }
+
+    const project = deployment.project;
+
+    // Determinar el despliegue objetivo exitoso al cual regresar
+    const targetDeployment =
+      deployment.status === DeploymentStatus.DEPLOYED
+        ? deployment
+        : await this.deploymentRepository.findOne({
+            where: {
+              projectId: project.id,
+              status: DeploymentStatus.DEPLOYED,
+            },
+            order: { finishedAt: 'DESC' },
+          });
+
+    if (!targetDeployment) {
+      throw new BadRequestException(
+        `No se encontró ningún despliegue previo exitoso (DEPLOYED) para el proyecto "${project.name}" al cual realizar rollback.`,
+      );
+    }
+
+    const branch = targetDeployment.branch || project.branch || 'main';
+    const commitSha = targetDeployment.commitSha || 'HEAD';
+    const author = user?.name || user?.email || 'Rollback System';
+    const shortSha =
+      commitSha.length >= 7 ? commitSha.substring(0, 7) : commitSha;
+    const defaultMsg = `Rollback to deployment #${targetDeployment.id} (${shortSha})`;
+    const commitMessage = dto?.reason?.trim()
+      ? `Rollback to #${targetDeployment.id}: ${dto.reason.trim()}`
+      : defaultMsg;
+
+    const rollbackDeployment = this.deploymentRepository.create({
+      projectId: project.id,
+      status: DeploymentStatus.QUEUED,
+      branch,
+      commitSha,
+      commitMessage,
+      startedAt: new Date(),
+    });
+
+    const savedDeployment =
+      await this.deploymentRepository.save(rollbackDeployment);
+    this.logger.log(
+      `Rollback #${savedDeployment.id} registrado con estado QUEUED hacia el despliegue #${targetDeployment.id} para el proyecto "${project.name}".`,
+    );
+
+    let jobId: string | undefined;
+
+    if (this.deployQueue) {
+      const deliveryId = randomUUID();
+      const jobData: DeploymentJobData = {
+        deliveryId,
+        deploymentId: savedDeployment.id,
+        projectId: project.id,
+        repositoryName: project.repositoryName,
+        cloneUrl: project.repositoryUrl,
+        branch,
+        commitSha,
+        commitMessage,
+        author,
+        receivedAt: new Date().toISOString(),
+      };
+
+      const job = await this.deployQueue.add(DEPLOY_JOB, jobData, {
+        jobId: deliveryId,
+        removeOnComplete: true,
+        attempts: 3,
+      });
+
+      jobId = String(job.id);
+      this.logger.log(
+        `Rollback #${savedDeployment.id} encolado en BullMQ con Job ID: ${jobId}.`,
+      );
+    }
+
+    return Object.assign(savedDeployment, { jobId });
   }
 }

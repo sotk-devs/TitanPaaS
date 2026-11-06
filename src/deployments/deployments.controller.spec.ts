@@ -43,6 +43,15 @@ describe('DeploymentsController', () => {
         totalPages: 1,
       }),
       findOne: jest.fn<any>().mockResolvedValue(mockDeployment),
+      triggerManualDeploy: jest.fn<any>().mockResolvedValue({
+        ...mockDeployment,
+        status: DeploymentStatus.QUEUED,
+        jobId: 'bull-job-123',
+      }),
+      cancelDeployment: jest.fn<any>().mockResolvedValue({
+        ...mockDeployment,
+        status: DeploymentStatus.CANCELLED,
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -89,6 +98,52 @@ describe('DeploymentsController', () => {
         deploymentId,
       );
       expect(result).toEqual(mockDeployment);
+    });
+  });
+
+  describe('triggerDeploy', () => {
+    it('should call service.triggerManualDeploy with user id, project id, dto, and user profile', async () => {
+      const dto = {
+        branch: 'staging',
+        commitSha: '1234567890abcdef',
+        commitMessage: 'deploy staging manually',
+      };
+
+      const result = await controller.triggerDeploy(
+        mockReq as any,
+        projectId,
+        dto,
+      );
+
+      expect(mockDeploymentsService.triggerManualDeploy).toHaveBeenCalledWith(
+        mockUser.id,
+        projectId,
+        dto,
+        mockUser,
+      );
+      expect(result).toEqual({
+        ...mockDeployment,
+        status: DeploymentStatus.QUEUED,
+        jobId: 'bull-job-123',
+      });
+    });
+  });
+
+  describe('cancelDeployment', () => {
+    it('should call service.cancelDeployment with user id and deployment id', async () => {
+      const result = await controller.cancelDeployment(
+        mockReq as any,
+        deploymentId,
+      );
+
+      expect(mockDeploymentsService.cancelDeployment).toHaveBeenCalledWith(
+        mockUser.id,
+        deploymentId,
+      );
+      expect(result).toEqual({
+        ...mockDeployment,
+        status: DeploymentStatus.CANCELLED,
+      });
     });
   });
 });

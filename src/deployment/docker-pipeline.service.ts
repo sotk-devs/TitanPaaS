@@ -28,11 +28,33 @@ export interface RunContainerOptions {
   network?: string;
   labels?: Record<string, string>;
   onLog?: LogCallback;
+  signal?: AbortSignal;
 }
 
 @Injectable()
 export class DockerPipelineService {
   private readonly logger = new Logger(DockerPipelineService.name);
+  private readonly activeDeployments = new Map<string, AbortController>();
+
+  registerDeploymentAbort(deploymentId: string): AbortSignal {
+    const controller = new AbortController();
+    this.activeDeployments.set(deploymentId, controller);
+    return controller.signal;
+  }
+
+  unregisterDeploymentAbort(deploymentId: string): void {
+    this.activeDeployments.delete(deploymentId);
+  }
+
+  abortDeployment(deploymentId: string): boolean {
+    const controller = this.activeDeployments.get(deploymentId);
+    if (controller) {
+      controller.abort();
+      this.activeDeployments.delete(deploymentId);
+      return true;
+    }
+    return false;
+  }
 
   getWorkspacePath(repositoryName: string, commitSha: string): string {
     const sanitizedRepo = repositoryName.replace(/[^a-zA-Z0-9]/g, '_');
@@ -68,6 +90,7 @@ export class DockerPipelineService {
     args: string[],
     cwd?: string,
     onLog?: LogCallback,
+    signal?: AbortSignal,
   ): Promise<CommandExecutionResult> {
     return new Promise((resolve, reject) => {
       this.logger.debug(`Ejecutando: ${command} ${args.join(' ')}`);
@@ -75,6 +98,7 @@ export class DockerPipelineService {
       const child = spawn(command, args, {
         cwd,
         shell: true,
+        signal,
       });
 
       let stdout = '';
@@ -114,6 +138,7 @@ export class DockerPipelineService {
     commitSha: string,
     targetDir: string,
     onLog?: LogCallback,
+    signal?: AbortSignal,
   ): Promise<PipelineStepResult> {
     const start = Date.now();
     await rm(targetDir, { recursive: true, force: true });
@@ -129,9 +154,11 @@ export class DockerPipelineService {
       targetDir,
     ];
 
-    const cloneResult = onLog
-      ? await this.executeCommand('git', cloneArgs, undefined, onLog)
-      : await this.executeCommand('git', cloneArgs);
+    const cloneResult = signal
+      ? await this.executeCommand('git', cloneArgs, undefined, onLog, signal)
+      : onLog
+        ? await this.executeCommand('git', cloneArgs, undefined, onLog)
+        : await this.executeCommand('git', cloneArgs);
 
     let logs =
       cloneResult.stdout +
@@ -140,18 +167,26 @@ export class DockerPipelineService {
     // Si se especifica un commit SHA distinto al HEAD de la rama, intentar checkout
     if (commitSha) {
       try {
-        const checkoutResult = onLog
+        const checkoutResult = signal
           ? await this.executeCommand(
               'git',
               ['checkout', commitSha],
               targetDir,
               onLog,
+              signal,
             )
-          : await this.executeCommand(
-              'git',
-              ['checkout', commitSha],
-              targetDir,
-            );
+          : onLog
+            ? await this.executeCommand(
+                'git',
+                ['checkout', commitSha],
+                targetDir,
+                onLog,
+              )
+            : await this.executeCommand(
+                'git',
+                ['checkout', commitSha],
+                targetDir,
+              );
         logs += `\n${checkoutResult.stdout}${checkoutResult.stderr ? `\n${checkoutResult.stderr}` : ''}`;
       } catch {
         // En clones superficiales depth=1 el commit específico ya es el head de la rama
@@ -168,12 +203,21 @@ export class DockerPipelineService {
     imageTag: string,
     contextDir: string,
     onLog?: LogCallback,
+    signal?: AbortSignal,
   ): Promise<PipelineStepResult> {
     const start = Date.now();
     const buildArgs = ['build', '-t', imageTag, '.'];
-    const result = onLog
-      ? await this.executeCommand('docker', buildArgs, contextDir, onLog)
-      : await this.executeCommand('docker', buildArgs, contextDir);
+    const result = signal
+      ? await this.executeCommand(
+          'docker',
+          buildArgs,
+          contextDir,
+          onLog,
+          signal,
+        )
+      : onLog
+        ? await this.executeCommand('docker', buildArgs, contextDir, onLog)
+        : await this.executeCommand('docker', buildArgs, contextDir);
 
     const logs = (
       result.stdout + (result.stderr ? `\n${result.stderr}` : '')
@@ -214,6 +258,7 @@ export class DockerPipelineService {
     const onLog: LogCallback | undefined = isCallback
       ? optionsOrOnLog
       : (options?.onLog ?? onLogCallback);
+    const signal: AbortSignal | undefined = options?.signal;
 
     const labelArgs: string[] = [];
     let url: string | undefined;
@@ -260,9 +305,11 @@ export class DockerPipelineService {
       imageTag,
     ];
 
-    const result = onLog
-      ? await this.executeCommand('docker', args, undefined, onLog)
-      : await this.executeCommand('docker', args);
+    const result = signal
+      ? await this.executeCommand('docker', args, undefined, onLog, signal)
+      : onLog
+        ? await this.executeCommand('docker', args, undefined, onLog)
+        : await this.executeCommand('docker', args);
     const containerId = result.stdout.trim().split('\n')[0];
 
     const logs = url
@@ -280,6 +327,7 @@ export class DockerPipelineService {
   async checkHealth(
     containerId: string,
     onLog?: LogCallback,
+    signal?: AbortSignal,
   ): Promise<PipelineStepResult> {
     const start = Date.now();
     const inspectArgs = [
@@ -288,9 +336,17 @@ export class DockerPipelineService {
       '{{.State.Status}}',
       containerId,
     ];
-    const result = onLog
-      ? await this.executeCommand('docker', inspectArgs, undefined, onLog)
-      : await this.executeCommand('docker', inspectArgs);
+    const result = signal
+      ? await this.executeCommand(
+          'docker',
+          inspectArgs,
+          undefined,
+          onLog,
+          signal,
+        )
+      : onLog
+        ? await this.executeCommand('docker', inspectArgs, undefined, onLog)
+        : await this.executeCommand('docker', inspectArgs);
 
     const status = result.stdout.trim();
     if (status !== 'running') {

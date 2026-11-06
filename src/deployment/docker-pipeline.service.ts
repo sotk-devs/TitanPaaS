@@ -359,6 +359,58 @@ export class DockerPipelineService {
     };
   }
 
+  async stopContainer(containerIdOrName: string): Promise<PipelineStepResult> {
+    const start = Date.now();
+    const result = await this.executeCommand('docker', [
+      'stop',
+      containerIdOrName,
+    ]);
+    return {
+      logs: result.stdout.trim() || `Container ${containerIdOrName} stopped`,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  async startContainer(containerIdOrName: string): Promise<PipelineStepResult> {
+    const start = Date.now();
+    const result = await this.executeCommand('docker', [
+      'start',
+      containerIdOrName,
+    ]);
+    return {
+      logs: result.stdout.trim() || `Container ${containerIdOrName} started`,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  async restartContainer(
+    containerIdOrName: string,
+  ): Promise<PipelineStepResult> {
+    const start = Date.now();
+    const result = await this.executeCommand('docker', [
+      'restart',
+      containerIdOrName,
+    ]);
+    return {
+      logs: result.stdout.trim() || `Container ${containerIdOrName} restarted`,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  async getContainerStatus(containerIdOrName: string): Promise<string> {
+    try {
+      const result = await this.executeCommand('docker', [
+        'inspect',
+        '--format',
+        '{{.State.Status}}',
+        containerIdOrName,
+      ]);
+      return result.stdout.trim();
+    } catch {
+      return 'not_found';
+    }
+  }
+
   async cleanup(targetDir: string): Promise<void> {
     try {
       await rm(targetDir, { recursive: true, force: true });

@@ -269,4 +269,66 @@ describe('DockerPipelineService', () => {
       expect(service.abortDeployment('dep-123')).toBe(false);
     });
   });
+
+  describe('Container Lifecycle methods', () => {
+    it('should execute docker stop on stopContainer', async () => {
+      const spy = jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'titan-app-test\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const result = await service.stopContainer('titan-app-test');
+
+      expect(spy).toHaveBeenCalledWith('docker', ['stop', 'titan-app-test']);
+      expect(result.logs).toBe('titan-app-test');
+      expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should execute docker start on startContainer', async () => {
+      const spy = jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'titan-app-test\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const result = await service.startContainer('titan-app-test');
+
+      expect(spy).toHaveBeenCalledWith('docker', ['start', 'titan-app-test']);
+      expect(result.logs).toBe('titan-app-test');
+    });
+
+    it('should execute docker restart on restartContainer', async () => {
+      const spy = jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'titan-app-test\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const result = await service.restartContainer('titan-app-test');
+
+      expect(spy).toHaveBeenCalledWith('docker', ['restart', 'titan-app-test']);
+      expect(result.logs).toBe('titan-app-test');
+    });
+
+    it('should return container status on getContainerStatus', async () => {
+      jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'running\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const status = await service.getContainerStatus('titan-app-test');
+      expect(status).toBe('running');
+    });
+
+    it('should return not_found when inspect fails on getContainerStatus', async () => {
+      jest
+        .spyOn(service, 'executeCommand')
+        .mockRejectedValue(new Error('No such container'));
+
+      const status = await service.getContainerStatus('titan-app-nonexistent');
+      expect(status).toBe('not_found');
+    });
+  });
 });

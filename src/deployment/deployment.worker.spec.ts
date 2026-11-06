@@ -52,7 +52,10 @@ describe('DeploymentWorker', () => {
       getWorkspacePath: jest.fn<any>().mockReturnValue('/tmp/test-workspace'),
       generateImageTag: jest
         .fn<any>()
-        .mockReturnValue('titan-sample-repo:a1b2c3d'),
+        .mockImplementation(
+          (repo: string, sha: string) =>
+            `titan-${repo.split('/')[1] || repo}:${sha ? sha.substring(0, 7) : 'latest'}`,
+        ),
       generateContainerName: jest
         .fn<any>()
         .mockReturnValue('titan-app-sample-repo'),
@@ -248,6 +251,78 @@ describe('DeploymentWorker', () => {
       );
       expect(mockDockerPipeline.cleanup).toHaveBeenCalledWith(
         '/tmp/test-workspace',
+      );
+    });
+
+    it('should update DB to CANCELLED and emit cancelled status when aborted by user', async () => {
+      const abortError = new Error('The operation was aborted');
+      abortError.name = 'AbortError';
+      (mockDockerPipeline.cloneRepository as jest.Mock<any>).mockRejectedValue(
+        abortError,
+      );
+
+      const mockJob = {
+        id: 'job-cancel-1',
+        name: DEPLOY_JOB,
+        data: mockJobData,
+        updateProgress: jest.fn().mockResolvedValue(undefined as never),
+      } as unknown as Job<DeploymentJobData, any, string>;
+
+      await expect(worker.process(mockJob)).rejects.toThrow(
+        'The operation was aborted',
+      );
+
+      expect(mockLogsGateway.emitStatus).toHaveBeenCalledWith(
+        'uuid-deployment-1',
+        DeploymentStatus.CANCELLED,
+        undefined,
+        'cancelled',
+      );
+      expect(mockDeploymentRepo.update).toHaveBeenCalledWith(
+        'uuid-deployment-1',
+        expect.objectContaining({ status: DeploymentStatus.CANCELLED }),
+      );
+      expect(mockDockerPipeline.cleanup).toHaveBeenCalledWith(
+        '/tmp/test-workspace',
+      );
+    });
+
+    it('should trigger automatic rollback to previous DEPLOYED deployment when a stage fails', async () => {
+      (mockDockerPipeline.buildImage as jest.Mock<any>).mockRejectedValue(
+        new Error('Docker build failed: health check timeout'),
+      );
+
+      const previousDeployment = {
+        id: 'uuid-prev-deployed-1',
+        projectId: 'uuid-project-1',
+        status: DeploymentStatus.DEPLOYED,
+        commitSha: 'prevsha123456',
+        finishedAt: new Date(),
+      };
+
+      mockDeploymentRepo.findOne = jest
+        .fn<any>()
+        .mockResolvedValue(previousDeployment);
+
+      const mockJob = {
+        id: 'job-autorollback-1',
+        name: DEPLOY_JOB,
+        data: mockJobData,
+        updateProgress: jest.fn().mockResolvedValue(undefined as never),
+      } as unknown as Job<DeploymentJobData, any, string>;
+
+      await expect(worker.process(mockJob)).rejects.toThrow(
+        'Docker build failed: health check timeout',
+      );
+
+      expect(mockDockerPipeline.runContainer).toHaveBeenCalledWith(
+        expect.stringContaining('prevsha'),
+        expect.any(String),
+        expect.any(Number),
+        expect.any(Object),
+        expect.objectContaining({
+          subdomain: expect.any(String),
+        }),
       );
     });
 

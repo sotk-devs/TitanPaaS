@@ -8,10 +8,7 @@ export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
       type: 'postgres',
       url: process.env.DATABASE_URL,
       entities: [User, Project, Deployment],
-      migrations: [
-        'dist/database/migrations/*.js',
-        'src/database/migrations/*.ts',
-      ],
+      migrations: ['src/database/migrations/*.ts'],
       synchronize: false,
     }
   : {
@@ -22,12 +19,9 @@ export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
       password: process.env.POSTGRES_PASSWORD || 'postgres',
       database: process.env.POSTGRES_DB || 'titan_paas',
       entities: [User, Project, Deployment],
-      migrations: [
-        'dist/database/migrations/*.js',
-        'src/database/migrations/*.ts',
-      ],
+      migrations: ['src/database/migrations/*.ts'],
       synchronize: false,
     };
 
-export const AppDataSource = new DataSource(dataSourceOptions);
+const AppDataSource = new DataSource(dataSourceOptions);
 export default AppDataSource;

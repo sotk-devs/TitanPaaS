@@ -251,6 +251,39 @@ describe('DeploymentWorker', () => {
       );
     });
 
+    it('should update DB to CANCELLED and emit cancelled status when aborted by user', async () => {
+      const abortError = new Error('The operation was aborted');
+      abortError.name = 'AbortError';
+      (mockDockerPipeline.cloneRepository as jest.Mock<any>).mockRejectedValue(
+        abortError,
+      );
+
+      const mockJob = {
+        id: 'job-cancel-1',
+        name: DEPLOY_JOB,
+        data: mockJobData,
+        updateProgress: jest.fn().mockResolvedValue(undefined as never),
+      } as unknown as Job<DeploymentJobData, any, string>;
+
+      await expect(worker.process(mockJob)).rejects.toThrow(
+        'The operation was aborted',
+      );
+
+      expect(mockLogsGateway.emitStatus).toHaveBeenCalledWith(
+        'uuid-deployment-1',
+        DeploymentStatus.CANCELLED,
+        undefined,
+        'cancelled',
+      );
+      expect(mockDeploymentRepo.update).toHaveBeenCalledWith(
+        'uuid-deployment-1',
+        expect.objectContaining({ status: DeploymentStatus.CANCELLED }),
+      );
+      expect(mockDockerPipeline.cleanup).toHaveBeenCalledWith(
+        '/tmp/test-workspace',
+      );
+    });
+
     it('should throw error when job name is unsupported', async () => {
       const mockJob = {
         id: 'job-99',

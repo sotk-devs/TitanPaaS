@@ -48,6 +48,10 @@ describe('DeploymentsController', () => {
         status: DeploymentStatus.QUEUED,
         jobId: 'bull-job-123',
       }),
+      cancelDeployment: jest.fn<any>().mockResolvedValue({
+        ...mockDeployment,
+        status: DeploymentStatus.CANCELLED,
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -121,6 +125,24 @@ describe('DeploymentsController', () => {
         ...mockDeployment,
         status: DeploymentStatus.QUEUED,
         jobId: 'bull-job-123',
+      });
+    });
+  });
+
+  describe('cancelDeployment', () => {
+    it('should call service.cancelDeployment with user id and deployment id', async () => {
+      const result = await controller.cancelDeployment(
+        mockReq as any,
+        deploymentId,
+      );
+
+      expect(mockDeploymentsService.cancelDeployment).toHaveBeenCalledWith(
+        mockUser.id,
+        deploymentId,
+      );
+      expect(result).toEqual({
+        ...mockDeployment,
+        status: DeploymentStatus.CANCELLED,
       });
     });
   });

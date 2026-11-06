@@ -242,4 +242,31 @@ describe('DockerPipelineService', () => {
       );
     });
   });
+
+  describe('abortDeployment and abort signals', () => {
+    it('should register an abort controller and return its signal', () => {
+      const signal = service.registerDeploymentAbort('dep-123');
+      expect(signal).toBeDefined();
+      expect(signal.aborted).toBe(false);
+    });
+
+    it('should abort an active deployment signal and return true', () => {
+      const signal = service.registerDeploymentAbort('dep-123');
+      const aborted = service.abortDeployment('dep-123');
+
+      expect(aborted).toBe(true);
+      expect(signal.aborted).toBe(true);
+    });
+
+    it('should return false when trying to abort an unknown or already aborted deployment', () => {
+      const aborted = service.abortDeployment('unknown-dep');
+      expect(aborted).toBe(false);
+    });
+
+    it('should remove the controller when unregistered', () => {
+      service.registerDeploymentAbort('dep-123');
+      service.unregisterDeploymentAbort('dep-123');
+      expect(service.abortDeployment('dep-123')).toBe(false);
+    });
+  });
 });

@@ -143,4 +143,40 @@ export class DeploymentsController {
       req.user,
     );
   }
+
+  @Post('deployments/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Cancelar un despliegue en curso o encolado',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    format: 'uuid',
+    description: 'Identificador único (UUID) del despliegue a cancelar',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Despliegue cancelado exitosamente.',
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'El despliegue ya se encuentra finalizado y no puede ser cancelado.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado.',
+  })
+  @ApiResponse({
+    status: 404,
+    description:
+      'Despliegue no encontrado o no pertenece al usuario autenticado.',
+  })
+  cancelDeployment(
+    @Request() req: RequestWithUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.deploymentsService.cancelDeployment(req.user.id, id);
+  }
 }

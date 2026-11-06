@@ -59,7 +59,7 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
 
   async executeCommand(command: string, args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-      const child = spawn(command, args, { shell: true });
+      const child = spawn(command, args, { shell: false });
       let stdout = '';
       let stderr = '';
 

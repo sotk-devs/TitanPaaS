@@ -45,6 +45,27 @@ describe('ProjectsController', () => {
       remove: jest.fn<any>().mockResolvedValue({
         message: 'Proyecto "sample-project" eliminado exitosamente',
       }),
+      stopContainer: jest.fn<any>().mockResolvedValue({
+        projectId: mockProject.id,
+        containerName: 'titan-app-sample-repo',
+        action: 'stop',
+        status: 'stopped',
+        message: 'Contenedor detenido exitosamente.',
+      }),
+      startContainer: jest.fn<any>().mockResolvedValue({
+        projectId: mockProject.id,
+        containerName: 'titan-app-sample-repo',
+        action: 'start',
+        status: 'running',
+        message: 'Contenedor iniciado exitosamente.',
+      }),
+      restartContainer: jest.fn<any>().mockResolvedValue({
+        projectId: mockProject.id,
+        containerName: 'titan-app-sample-repo',
+        action: 'restart',
+        status: 'running',
+        message: 'Contenedor reiniciado exitosamente.',
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -122,6 +143,62 @@ describe('ProjectsController', () => {
 
       expect(service.remove).toHaveBeenCalledWith(mockUser.id, mockProject.id);
       expect(result).toHaveProperty('message');
+    });
+  });
+
+  describe('Container Lifecycle endpoints', () => {
+    describe('stop', () => {
+      it('should call service.stopContainer with user ID and project ID', async () => {
+        const result = await controller.stop(mockReq, mockProject.id);
+
+        expect(service.stopContainer).toHaveBeenCalledWith(
+          mockUser.id,
+          mockProject.id,
+        );
+        expect(result).toEqual({
+          projectId: mockProject.id,
+          containerName: 'titan-app-sample-repo',
+          action: 'stop',
+          status: 'stopped',
+          message: 'Contenedor detenido exitosamente.',
+        });
+      });
+    });
+
+    describe('start', () => {
+      it('should call service.startContainer with user ID and project ID', async () => {
+        const result = await controller.start(mockReq, mockProject.id);
+
+        expect(service.startContainer).toHaveBeenCalledWith(
+          mockUser.id,
+          mockProject.id,
+        );
+        expect(result).toEqual({
+          projectId: mockProject.id,
+          containerName: 'titan-app-sample-repo',
+          action: 'start',
+          status: 'running',
+          message: 'Contenedor iniciado exitosamente.',
+        });
+      });
+    });
+
+    describe('restart', () => {
+      it('should call service.restartContainer with user ID and project ID', async () => {
+        const result = await controller.restart(mockReq, mockProject.id);
+
+        expect(service.restartContainer).toHaveBeenCalledWith(
+          mockUser.id,
+          mockProject.id,
+        );
+        expect(result).toEqual({
+          projectId: mockProject.id,
+          containerName: 'titan-app-sample-repo',
+          action: 'restart',
+          status: 'running',
+          message: 'Contenedor reiniciado exitosamente.',
+        });
+      });
     });
   });
 });

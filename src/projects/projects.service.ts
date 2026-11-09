@@ -2,18 +2,29 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Project } from './entities/project.entity.js';
 import { CreateProjectDto } from './dto/create-project.dto.js';
 import { UpdateProjectDto } from './dto/update-project.dto.js';
+import { DockerPipelineService } from '../deployment/docker-pipeline.service.js';
+
+export interface ContainerActionResponse {
+  projectId: string;
+  containerName: string;
+  action: 'stop' | 'start' | 'restart';
+  status: 'stopped' | 'running';
+  message: string;
+}
 
 @Injectable()
 export class ProjectsService {
   constructor(
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
+    private readonly dockerPipeline: DockerPipelineService,
   ) {}
 
   async create(
@@ -117,6 +128,107 @@ export class ProjectsService {
     await this.projectRepository.remove(project);
     return {
       message: `Proyecto "${project.name}" eliminado exitosamente`,
+    };
+  }
+
+  async stopContainer(
+    userId: string,
+    id: string,
+  ): Promise<ContainerActionResponse> {
+    const project = await this.findOne(userId, id);
+    const containerName = this.dockerPipeline.generateContainerName(
+      project.repositoryName,
+    );
+    const status = await this.dockerPipeline.getContainerStatus(containerName);
+
+    if (status === 'not_found') {
+      throw new BadRequestException(
+        `No se encontró ningún contenedor desplegado para el proyecto "${project.name}". Debe realizar al menos un despliegue primero.`,
+      );
+    }
+
+    if (status === 'exited' || status === 'stopped') {
+      return {
+        projectId: project.id,
+        containerName,
+        action: 'stop',
+        status: 'stopped',
+        message: 'El contenedor ya se encontraba detenido.',
+      };
+    }
+
+    await this.dockerPipeline.stopContainer(containerName);
+
+    return {
+      projectId: project.id,
+      containerName,
+      action: 'stop',
+      status: 'stopped',
+      message: 'Contenedor detenido exitosamente.',
+    };
+  }
+
+  async startContainer(
+    userId: string,
+    id: string,
+  ): Promise<ContainerActionResponse> {
+    const project = await this.findOne(userId, id);
+    const containerName = this.dockerPipeline.generateContainerName(
+      project.repositoryName,
+    );
+    const status = await this.dockerPipeline.getContainerStatus(containerName);
+
+    if (status === 'not_found') {
+      throw new BadRequestException(
+        `No se encontró ningún contenedor desplegado para el proyecto "${project.name}". Debe realizar al menos un despliegue primero.`,
+      );
+    }
+
+    if (status === 'running') {
+      return {
+        projectId: project.id,
+        containerName,
+        action: 'start',
+        status: 'running',
+        message: 'El contenedor ya se encuentra en ejecución.',
+      };
+    }
+
+    await this.dockerPipeline.startContainer(containerName);
+
+    return {
+      projectId: project.id,
+      containerName,
+      action: 'start',
+      status: 'running',
+      message: 'Contenedor iniciado exitosamente.',
+    };
+  }
+
+  async restartContainer(
+    userId: string,
+    id: string,
+  ): Promise<ContainerActionResponse> {
+    const project = await this.findOne(userId, id);
+    const containerName = this.dockerPipeline.generateContainerName(
+      project.repositoryName,
+    );
+    const status = await this.dockerPipeline.getContainerStatus(containerName);
+
+    if (status === 'not_found') {
+      throw new BadRequestException(
+        `No se encontró ningún contenedor desplegado para el proyecto "${project.name}". Debe realizar al menos un despliegue primero.`,
+      );
+    }
+
+    await this.dockerPipeline.restartContainer(containerName);
+
+    return {
+      projectId: project.id,
+      containerName,
+      action: 'restart',
+      status: 'running',
+      message: 'Contenedor reiniciado exitosamente.',
     };
   }
 }

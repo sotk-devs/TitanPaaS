@@ -33,6 +33,9 @@ jobs:
       - name: Run ESLint
         run: npx eslint src/ test/
 
+      - name: Run Prettier
+        run: npx prettier --check "src/**/*.ts" "test/**/*.ts"
+
       - name: Run Build
         run: npm run build
 

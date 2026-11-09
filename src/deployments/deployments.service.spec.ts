@@ -376,4 +376,110 @@ describe('DeploymentsService', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  describe('rollbackDeployment', () => {
+    it('should rollback to a previously DEPLOYED deployment and enqueue job', async () => {
+      mockDeploymentRepo.findOne?.mockResolvedValueOnce({
+        ...mockDeployment,
+        status: DeploymentStatus.DEPLOYED,
+      } as any);
+
+      const result = await service.rollbackDeployment(userId, deploymentId, {
+        reason: 'revert breaking bug',
+      });
+
+      expect(mockDeploymentRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: mockProject.id,
+          status: DeploymentStatus.QUEUED,
+          branch: 'main',
+          commitSha: 'abcdef1234567890',
+          commitMessage: expect.stringContaining('revert breaking bug'),
+        }),
+      );
+      expect(mockDeploymentRepo.save).toHaveBeenCalled();
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        DEPLOY_JOB,
+        expect.objectContaining({
+          projectId: mockProject.id,
+          repositoryName: 'org/repo',
+          cloneUrl: 'https://github.com/org/repo.git',
+          branch: 'main',
+          commitSha: 'abcdef1234567890',
+        }),
+        expect.anything(),
+      );
+      expect(result.jobId).toBe('bull-job-123');
+    });
+
+    it('should find the last DEPLOYED deployment if target deployment is FAILED', async () => {
+      const failedDeployment = {
+        ...mockDeployment,
+        id: 'failed-deployment-id',
+        status: DeploymentStatus.FAILED,
+      };
+
+      const lastSuccessful = {
+        ...mockDeployment,
+        id: 'successful-deploy-prev',
+        commitSha: 'prev123456789',
+        status: DeploymentStatus.DEPLOYED,
+      };
+
+      mockDeploymentRepo.findOne
+        ?.mockResolvedValueOnce(failedDeployment as any)
+        ?.mockResolvedValueOnce(lastSuccessful as any);
+
+      const result = await service.rollbackDeployment(
+        userId,
+        'failed-deployment-id',
+      );
+
+      expect(mockDeploymentRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: mockProject.id,
+          status: DeploymentStatus.QUEUED,
+          commitSha: 'prev123456789',
+          commitMessage: expect.stringContaining(
+            'Rollback to deployment #successful-deploy-prev',
+          ),
+        }),
+      );
+      expect(result.jobId).toBe('bull-job-123');
+    });
+
+    it('should throw BadRequestException if no previous DEPLOYED deployment exists', async () => {
+      const failedDeployment = {
+        ...mockDeployment,
+        status: DeploymentStatus.FAILED,
+      };
+
+      mockDeploymentRepo.findOne
+        ?.mockResolvedValueOnce(failedDeployment as any)
+        ?.mockResolvedValueOnce(null);
+
+      await expect(
+        service.rollbackDeployment(userId, deploymentId),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw NotFoundException if deployment does not exist', async () => {
+      mockDeploymentRepo.findOne?.mockResolvedValueOnce(null);
+
+      await expect(
+        service.rollbackDeployment(userId, 'non-existent-id'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException if deployment belongs to another user', async () => {
+      mockDeploymentRepo.findOne?.mockResolvedValueOnce({
+        ...mockDeployment,
+        project: { ...mockProject, userId: 'other-user' },
+      } as any);
+
+      await expect(
+        service.rollbackDeployment(userId, deploymentId),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
 });

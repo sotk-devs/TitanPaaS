@@ -142,22 +142,14 @@ export class DeploymentWorker extends WorkerHost {
         `📥 [1/4] Cloning repository from ${data.cloneUrl} (${data.branch})...\n`,
       );
 
-      const cloneResult = abortSignal
-        ? await this.dockerPipeline.cloneRepository(
-            data.cloneUrl,
-            data.branch,
-            data.commitSha,
-            workspaceDir,
-            emitLog,
-            abortSignal,
-          )
-        : await this.dockerPipeline.cloneRepository(
-            data.cloneUrl,
-            data.branch,
-            data.commitSha,
-            workspaceDir,
-            emitLog,
-          );
+      const cloneResult = await this.dockerPipeline.cloneRepository(
+        data.cloneUrl,
+        data.branch,
+        data.commitSha,
+        workspaceDir,
+        emitLog,
+        abortSignal,
+      );
       accumulatedLogs += `=== STAGE 1: CLONE ===\n${cloneResult.logs}\n\n`;
       await job.updateProgress(25);
       stages.push({
@@ -183,14 +175,12 @@ export class DeploymentWorker extends WorkerHost {
       emitStatus(DeploymentStatus.BUILDING, 30, 'build');
       emitLog(`🔨 [2/4] Building Docker image ${imageTag}...\n`);
 
-      const buildResult = abortSignal
-        ? await this.dockerPipeline.buildImage(
-            imageTag,
-            workspaceDir,
-            emitLog,
-            abortSignal,
-          )
-        : await this.dockerPipeline.buildImage(imageTag, workspaceDir, emitLog);
+      const buildResult = await this.dockerPipeline.buildImage(
+        imageTag,
+        workspaceDir,
+        emitLog,
+        abortSignal,
+      );
       accumulatedLogs += `=== STAGE 2: BUILD ===\n${buildResult.logs}\n\n`;
       await job.updateProgress(50);
       stages.push({
@@ -239,7 +229,7 @@ export class DeploymentWorker extends WorkerHost {
           baseDomain: process.env.BASE_DOMAIN || 'localhost',
           network: process.env.DOCKER_NETWORK || 'titan-network',
           onLog: emitLog,
-          ...(abortSignal ? { signal: abortSignal } : {}),
+          signal: abortSignal,
         },
       );
       containerId = runResult.containerId;
@@ -338,6 +328,65 @@ export class DeploymentWorker extends WorkerHost {
           }
         } else if (isCancelled) {
           finalStatus = DeploymentStatus.CANCELLED;
+        }
+
+        // Rollback automático: si el fallo no fue una cancelación y existe un despliegue previo DEPLOYED,
+        // restaurar el contenedor anterior para evitar caída del servicio
+        if (
+          !isCancelled &&
+          data.projectId &&
+          this.deploymentRepository.findOne &&
+          this.dockerPipeline
+        ) {
+          try {
+            const previousSuccess = await this.deploymentRepository.findOne({
+              where: {
+                projectId: data.projectId,
+                status: DeploymentStatus.DEPLOYED,
+              },
+              order: { finishedAt: 'DESC' },
+            });
+
+            if (previousSuccess && previousSuccess.id !== data.deploymentId) {
+              this.logger.warn(
+                `[Auto-Rollback] Restaurando contenedor del despliegue previo exitoso #${previousSuccess.id}...`,
+              );
+              emitLog(
+                `\n🔄 [Auto-Rollback] Deployment failed. Automatically restoring previous healthy deployment #${previousSuccess.id}...\n`,
+                'stdout',
+              );
+
+              const prevImage = this.dockerPipeline.generateImageTag(
+                data.repositoryName,
+                previousSuccess.commitSha || 'latest',
+              );
+              const subdomain = project?.name
+                ? this.dockerPipeline.generateSubdomain(project.name)
+                : this.dockerPipeline.generateSubdomain(data.repositoryName);
+
+              await this.dockerPipeline.runContainer(
+                prevImage,
+                containerName,
+                port,
+                envVariables,
+                {
+                  subdomain,
+                  baseDomain: process.env.BASE_DOMAIN || 'localhost',
+                  network: process.env.DOCKER_NETWORK || 'titan-network',
+                  onLog: emitLog,
+                },
+              );
+
+              accumulatedLogs += `\n=== AUTOMATIC ROLLBACK ===\nSuccessfully restored previous deployment #${previousSuccess.id}\n`;
+              emitLog(
+                `✅ [Auto-Rollback] Restored deployment #${previousSuccess.id}\n`,
+              );
+            }
+          } catch (rollbackError) {
+            this.logger.error(
+              `[Auto-Rollback] Error al intentar restaurar despliegue previo: ${(rollbackError as Error).message}`,
+            );
+          }
         }
 
         await this.deploymentRepository.update(data.deploymentId, {

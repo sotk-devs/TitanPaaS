@@ -21,6 +21,7 @@ import {
 import { DeploymentsService } from './deployments.service.js';
 import { DeploymentPaginationQueryDto } from './dto/deployment-pagination-query.dto.js';
 import { TriggerDeployDto } from './dto/trigger-deploy.dto.js';
+import { RollbackDeployDto } from './dto/rollback-deploy.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 
 interface RequestWithUser {
@@ -178,5 +179,50 @@ export class DeploymentsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.deploymentsService.cancelDeployment(req.user.id, id);
+  }
+
+  @Post('deployments/:id/rollback')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary:
+      'Revertir un proyecto al estado de un despliegue previo exitoso (Rollback)',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    format: 'uuid',
+    description:
+      'Identificador único (UUID) del despliegue exitoso al cual regresar o despliegue actual a revertir',
+  })
+  @ApiResponse({
+    status: 201,
+    description:
+      'Despliegue de rollback encolado exitosamente con estado QUEUED.',
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'No se encontró ningún despliegue previo exitoso (DEPLOYED) para realizar el rollback.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado.',
+  })
+  @ApiResponse({
+    status: 404,
+    description:
+      'Despliegue no encontrado o no pertenece a un proyecto del usuario autenticado.',
+  })
+  rollbackDeployment(
+    @Request() req: RequestWithUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() rollbackDto?: RollbackDeployDto,
+  ) {
+    return this.deploymentsService.rollbackDeployment(
+      req.user.id,
+      id,
+      rollbackDto,
+      req.user,
+    );
   }
 }

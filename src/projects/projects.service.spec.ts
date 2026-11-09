@@ -118,6 +118,28 @@ describe('ProjectsService', () => {
       expect(result.name).toBe('sample-project');
     });
 
+    it('should create project with resource limits (cpuLimit, memoryLimit, memorySwap)', async () => {
+      (repository.findOne as jest.Mock<any>).mockResolvedValue(null);
+
+      const result = await service.create(mockUserId, {
+        name: 'limited-project',
+        repositoryUrl: 'https://github.com/sotk-devs/sample-repo.git',
+        repositoryName: 'sotk-devs/sample-repo',
+        cpuLimit: 1.5,
+        memoryLimit: '512m',
+        memorySwap: '1g',
+      });
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cpuLimit: 1.5,
+          memoryLimit: '512m',
+          memorySwap: '1g',
+        }),
+      );
+      expect(result).toBeDefined();
+    });
+
     it('should throw ConflictException if project name already exists for user', async () => {
       (repository.findOne as jest.Mock<any>).mockResolvedValue(mockProject);
 
@@ -180,6 +202,23 @@ describe('ProjectsService', () => {
       });
 
       expect(result.name).toBe('updated-project');
+      expect(repository.save).toHaveBeenCalled();
+    });
+
+    it('should update project resource limits (cpuLimit, memoryLimit, memorySwap)', async () => {
+      (repository.findOne as jest.Mock<any>).mockResolvedValueOnce({
+        ...mockProject,
+      });
+
+      const result = await service.update(mockUserId, mockProjectId, {
+        cpuLimit: 2.0,
+        memoryLimit: '1g',
+        memorySwap: '2g',
+      });
+
+      expect(result.cpuLimit).toBe(2.0);
+      expect(result.memoryLimit).toBe('1g');
+      expect(result.memorySwap).toBe('2g');
       expect(repository.save).toHaveBeenCalled();
     });
 

@@ -1,9 +1,11 @@
 import {
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   Max,
   Min,
   MinLength,
@@ -67,4 +69,36 @@ export class CreateProjectDto {
     message: 'Las variables de entorno deben ser un objeto clave-valor',
   })
   envVariables?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    example: 1.0,
+    description: 'Límite de CPU en núcleos (ej. 0.5, 1.0, 2.0)',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: 'El límite de CPU debe ser un número válido' })
+  @Min(0.1, { message: 'El límite mínimo de CPU es 0.1' })
+  @Max(64, { message: 'El límite máximo de CPU es 64' })
+  cpuLimit?: number;
+
+  @ApiPropertyOptional({
+    example: '512m',
+    description: 'Límite de memoria RAM (ej. 256m, 512m, 1g, 2g)',
+  })
+  @IsOptional()
+  @IsString({ message: 'El límite de memoria debe ser una cadena de texto' })
+  @Matches(/^\d+(m|g|k|b)?$/i, {
+    message: 'memoryLimit debe ser un valor válido (ej: 256m, 512m, 1g)',
+  })
+  memoryLimit?: string;
+
+  @ApiPropertyOptional({
+    example: '1g',
+    description: 'Límite total de memoria + swap (ej. 512m, 1g, 2g)',
+  })
+  @IsOptional()
+  @IsString({ message: 'El límite de swap debe ser una cadena de texto' })
+  @Matches(/^\d+(m|g|k|b)?$/i, {
+    message: 'memorySwap debe ser un valor válido (ej: 512m, 1g, 2g)',
+  })
+  memorySwap?: string;
 }

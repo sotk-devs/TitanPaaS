@@ -37,6 +37,35 @@ export class Project {
   @Column({ type: 'jsonb', default: {}, name: 'env_variables' })
   envVariables: Record<string, string>;
 
+  @Column({
+    type: 'varchar',
+    nullable: true,
+    name: 'healthcheck_path',
+    default: null,
+  })
+  healthcheckPath: string | null;
+
+  @Column({
+    type: 'int',
+    default: 200,
+    name: 'healthcheck_expected_status',
+  })
+  healthcheckExpectedStatus: number;
+
+  @Column({
+    type: 'int',
+    default: 5,
+    name: 'healthcheck_timeout',
+  })
+  healthcheckTimeout: number;
+
+  @Column({
+    type: 'int',
+    default: 3,
+    name: 'healthcheck_retries',
+  })
+  healthcheckRetries: number;
+
   @Column({ type: 'uuid', name: 'user_id' })
   @Index()
   userId: string;

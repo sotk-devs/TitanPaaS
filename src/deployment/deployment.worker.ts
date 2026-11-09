@@ -265,6 +265,31 @@ export class DeploymentWorker extends WorkerHost {
           )
         : await this.dockerPipeline.checkHealth(containerId, emitLog);
       accumulatedLogs += `=== STAGE 4: HEALTHCHECK ===\n${healthResult.logs}\n\n`;
+
+      if (project?.healthcheckPath) {
+        const rawPath = project.healthcheckPath.trim();
+        const normalizedPath = rawPath.startsWith('/')
+          ? rawPath
+          : `/${rawPath}`;
+        const targetUrl = deploymentUrl
+          ? `${deploymentUrl}${normalizedPath}`
+          : `http://localhost:${port}${normalizedPath}`;
+
+        emitLog(
+          `🌐 Executing HTTP healthcheck on ${targetUrl} (expected: ${project.healthcheckExpectedStatus || 200}, retries: ${project.healthcheckRetries || 3}, timeout: ${project.healthcheckTimeout || 5}s)...\n`,
+        );
+
+        const httpHealthResult = await this.dockerPipeline.checkHttpHealth({
+          url: targetUrl,
+          expectedStatus: project.healthcheckExpectedStatus || 200,
+          timeoutSeconds: project.healthcheckTimeout || 5,
+          retries: project.healthcheckRetries || 3,
+          onLog: emitLog,
+          signal: abortSignal,
+        });
+
+        accumulatedLogs += `=== HTTP HEALTHCHECK ===\n${httpHealthResult.logs}\n\n`;
+      }
       await job.updateProgress(100);
       stages.push({
         name: 'healthcheck',

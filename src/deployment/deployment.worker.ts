@@ -219,6 +219,15 @@ export class DeploymentWorker extends WorkerHost {
         ? this.dockerPipeline.generateSubdomain(project.name)
         : this.dockerPipeline.generateSubdomain(data.repositoryName);
 
+      const resourceLimits =
+        project?.cpuLimit || project?.memoryLimit || project?.memorySwap
+          ? {
+              cpus: project.cpuLimit ?? undefined,
+              memory: project.memoryLimit ?? undefined,
+              memorySwap: project.memorySwap ?? undefined,
+            }
+          : undefined;
+
       const runResult = await this.dockerPipeline.runContainer(
         imageTag,
         containerName,
@@ -228,6 +237,7 @@ export class DeploymentWorker extends WorkerHost {
           subdomain,
           baseDomain: process.env.BASE_DOMAIN || 'localhost',
           network: process.env.DOCKER_NETWORK || 'titan-network',
+          resourceLimits,
           onLog: emitLog,
           signal: abortSignal,
         },

@@ -40,6 +40,9 @@ describe('DeploymentWorker', () => {
     branch: 'main',
     port: 8080,
     envVariables: { NODE_ENV: 'production' },
+    cpuLimit: 2.0,
+    memoryLimit: '1g',
+    memorySwap: '2g',
     userId: 'uuid-user-1',
     user: null as any,
     deployments: [],
@@ -153,6 +156,11 @@ describe('DeploymentWorker', () => {
           subdomain: 'sample-project',
           baseDomain: 'localhost',
           network: 'titan-network',
+          resourceLimits: {
+            cpus: 2.0,
+            memory: '1g',
+            memorySwap: '2g',
+          },
           onLog: expect.any(Function),
         }),
       );

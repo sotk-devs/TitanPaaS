@@ -40,6 +40,7 @@ const databaseModules =
         AuthModule,
         ProjectsModule,
         DeploymentsModule,
+        TerminalModule,
       ]
     : [];
 
@@ -70,7 +71,6 @@ const workerModules =
     ...workerModules,
     WebhooksModule,
     LogsModule,
-    TerminalModule,
   ],
   controllers: [AppController],
   providers: [

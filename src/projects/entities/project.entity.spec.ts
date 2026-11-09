@@ -14,6 +14,9 @@ describe('Project Entity', () => {
     project.branch = 'main';
     project.port = 8080;
     project.envVariables = { NODE_ENV: 'production', PORT: '8080' };
+    project.cpuLimit = 1.5;
+    project.memoryLimit = '512m';
+    project.memorySwap = '1g';
     project.userId = 'uuid-user-1';
 
     const user = new User();
@@ -38,6 +41,9 @@ describe('Project Entity', () => {
       NODE_ENV: 'production',
       PORT: '8080',
     });
+    expect(project.cpuLimit).toBe(1.5);
+    expect(project.memoryLimit).toBe('512m');
+    expect(project.memorySwap).toBe('1g');
     expect(project.userId).toBe('uuid-user-1');
     expect(project.user).toBe(user);
     expect(project.deployments).toHaveLength(1);

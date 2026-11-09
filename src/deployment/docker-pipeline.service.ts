@@ -27,6 +27,7 @@ export interface RunContainerOptions {
   baseDomain?: string;
   network?: string;
   labels?: Record<string, string>;
+  customDomains?: string[];
   onLog?: LogCallback;
   signal?: AbortSignal;
 }
@@ -271,9 +272,17 @@ export class DockerPipelineService {
       const routerName = containerName.replace(/[^a-zA-Z0-9_-]/g, '-');
       url = `http://${subdomain}.${baseDomain}`;
 
+      const hostRules = [`Host(\`${subdomain}.${baseDomain}\`)`];
+      if (options.customDomains?.length) {
+        for (const customDomain of options.customDomains) {
+          hostRules.push(`Host(\`${customDomain}\`)`);
+        }
+      }
+      const hostRule = hostRules.join(' || ');
+
       const traefikLabels: Record<string, string> = {
         'traefik.enable': 'true',
-        [`traefik.http.routers.${routerName}.rule`]: `Host(\`${subdomain}.${baseDomain}\`)`,
+        [`traefik.http.routers.${routerName}.rule`]: hostRule,
         [`traefik.http.routers.${routerName}.entrypoints`]: 'web',
         [`traefik.http.services.${routerName}.loadbalancer.server.port`]:
           String(port),

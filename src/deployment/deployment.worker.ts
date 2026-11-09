@@ -88,6 +88,7 @@ export class DeploymentWorker extends WorkerHost {
     if (data.projectId && this.projectRepository) {
       project = await this.projectRepository.findOne({
         where: { id: data.projectId },
+        relations: ['customDomains'],
       });
       if (project) {
         port = project.port || 3000;
@@ -219,6 +220,11 @@ export class DeploymentWorker extends WorkerHost {
         ? this.dockerPipeline.generateSubdomain(project.name)
         : this.dockerPipeline.generateSubdomain(data.repositoryName);
 
+      const verifiedDomains =
+        project?.customDomains
+          ?.filter((d: any) => d.status === 'VERIFIED')
+          ?.map((d: any) => d.domain) || [];
+
       const runResult = await this.dockerPipeline.runContainer(
         imageTag,
         containerName,
@@ -228,6 +234,7 @@ export class DeploymentWorker extends WorkerHost {
           subdomain,
           baseDomain: process.env.BASE_DOMAIN || 'localhost',
           network: process.env.DOCKER_NETWORK || 'titan-network',
+          customDomains: verifiedDomains,
           onLog: emitLog,
           signal: abortSignal,
         },

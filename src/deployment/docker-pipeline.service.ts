@@ -38,6 +38,16 @@ export interface RunContainerOptions {
   signal?: AbortSignal;
 }
 
+export interface HttpHealthcheckOptions {
+  url: string;
+  expectedStatus?: number;
+  timeoutSeconds?: number;
+  retries?: number;
+  retryIntervalMs?: number;
+  onLog?: LogCallback;
+  signal?: AbortSignal;
+}
+
 @Injectable()
 export class DockerPipelineService {
   private readonly logger = new Logger(DockerPipelineService.name);
@@ -478,6 +488,79 @@ export class DockerPipelineService {
       logs: `Container health verified: ${status}`,
       durationMs: Date.now() - start,
     };
+  }
+
+  async checkHttpHealth(
+    options: HttpHealthcheckOptions,
+  ): Promise<PipelineStepResult> {
+    const start = Date.now();
+    const expectedStatus = options.expectedStatus ?? 200;
+    const timeoutMs = (options.timeoutSeconds ?? 5) * 1000;
+    const maxRetries = options.retries ?? 3;
+    const intervalMs = options.retryIntervalMs ?? 1000;
+    const onLog = options.onLog;
+
+    let attempt = 0;
+    let lastError: Error | null = null;
+    let logs = '';
+
+    while (attempt < maxRetries) {
+      if (options.signal?.aborted) {
+        throw new Error('Healthcheck operation was cancelled');
+      }
+
+      attempt++;
+      const attemptLog = `Attempt ${attempt}/${maxRetries}: Checking ${options.url}...\n`;
+      logs += attemptLog;
+      onLog?.(attemptLog, 'stdout');
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        const onAbort = () => controller.abort();
+        options.signal?.addEventListener('abort', onAbort, { once: true });
+
+        const response = await fetch(options.url, {
+          method: 'GET',
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+        options.signal?.removeEventListener('abort', onAbort);
+
+        if (response.status === expectedStatus) {
+          const successLog = `HTTP Healthcheck passed (${response.status} === ${expectedStatus}) at ${options.url}\n`;
+          logs += successLog;
+          onLog?.(successLog, 'stdout');
+          return {
+            logs: logs.trim(),
+            durationMs: Date.now() - start,
+          };
+        } else {
+          lastError = new Error(
+            `Unexpected HTTP status code: ${response.status} (expected: ${expectedStatus})`,
+          );
+          const warnLog = `Received status ${response.status}, expected ${expectedStatus}\n`;
+          logs += warnLog;
+          onLog?.(warnLog, 'stderr');
+        }
+      } catch (err) {
+        lastError = err as Error;
+        const errLog = `Connection failed or timed out: ${(err as Error).message}\n`;
+        logs += errLog;
+        onLog?.(errLog, 'stderr');
+      }
+
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    }
+
+    const failureMessage =
+      `HTTP Healthcheck failed for ${options.url} after ${maxRetries} attempts. ` +
+      (lastError ? lastError.message : '');
+    throw new Error(failureMessage);
   }
 
   async stopContainer(containerIdOrName: string): Promise<PipelineStepResult> {

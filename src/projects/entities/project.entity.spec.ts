@@ -14,6 +14,10 @@ describe('Project Entity', () => {
     project.branch = 'main';
     project.port = 8080;
     project.envVariables = { NODE_ENV: 'production', PORT: '8080' };
+    project.healthcheckPath = '/healthz';
+    project.healthcheckExpectedStatus = 200;
+    project.healthcheckTimeout = 5;
+    project.healthcheckRetries = 3;
     project.userId = 'uuid-user-1';
 
     const user = new User();
@@ -38,6 +42,10 @@ describe('Project Entity', () => {
       NODE_ENV: 'production',
       PORT: '8080',
     });
+    expect(project.healthcheckPath).toBe('/healthz');
+    expect(project.healthcheckExpectedStatus).toBe(200);
+    expect(project.healthcheckTimeout).toBe(5);
+    expect(project.healthcheckRetries).toBe(3);
     expect(project.userId).toBe('uuid-user-1');
     expect(project.user).toBe(user);
     expect(project.deployments).toHaveLength(1);

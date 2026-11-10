@@ -372,6 +372,91 @@ describe('DockerPipelineService', () => {
     });
   });
 
+  describe('checkHttpHealth', () => {
+    const originalFetch = global.fetch;
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it('should return success when status matches expectedStatus', async () => {
+      global.fetch = jest.fn<any>().mockResolvedValue({
+        status: 200,
+      });
+
+      const onLog = jest.fn();
+      const result = await service.checkHttpHealth({
+        url: 'http://localhost:3000/healthz',
+        expectedStatus: 200,
+        retries: 2,
+        retryIntervalMs: 10,
+        onLog,
+      });
+
+      expect(result.logs).toContain('HTTP Healthcheck passed');
+      expect(onLog).toHaveBeenCalled();
+    });
+
+    it('should retry and succeed if subsequent attempt returns expectedStatus', async () => {
+      global.fetch = jest
+        .fn<any>()
+        .mockResolvedValueOnce({ status: 503 })
+        .mockResolvedValueOnce({ status: 200 });
+
+      const result = await service.checkHttpHealth({
+        url: 'http://localhost:3000/healthz',
+        expectedStatus: 200,
+        retries: 3,
+        retryIntervalMs: 10,
+      });
+
+      expect(result.logs).toContain('HTTP Healthcheck passed');
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should throw error when all retries fail with unexpected status', async () => {
+      global.fetch = jest.fn<any>().mockResolvedValue({ status: 500 });
+
+      await expect(
+        service.checkHttpHealth({
+          url: 'http://localhost:3000/healthz',
+          expectedStatus: 200,
+          retries: 2,
+          retryIntervalMs: 10,
+        }),
+      ).rejects.toThrow('HTTP Healthcheck failed');
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should throw error when all retries fail with network error', async () => {
+      global.fetch = jest
+        .fn<any>()
+        .mockRejectedValue(new Error('ECONNREFUSED'));
+
+      await expect(
+        service.checkHttpHealth({
+          url: 'http://localhost:3000/healthz',
+          expectedStatus: 200,
+          retries: 2,
+          retryIntervalMs: 10,
+        }),
+      ).rejects.toThrow('HTTP Healthcheck failed');
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should throw error if signal is aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        service.checkHttpHealth({
+          url: 'http://localhost:3000/healthz',
+          signal: controller.signal,
+        }),
+      ).rejects.toThrow('Healthcheck operation was cancelled');
+    });
+  });
+
   describe('abortDeployment and abort signals', () => {
     it('should register an abort controller and return its signal', () => {
       const signal = service.registerDeploymentAbort('dep-123');

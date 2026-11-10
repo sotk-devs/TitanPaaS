@@ -11,6 +11,8 @@ import { Deployment } from '../deployments/entities/deployment.entity.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js';
 import { LogsGateway } from '../logs/logs.gateway.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { NotificationEvent } from '../notifications/enums/notification-event.enum.js';
 
 describe('DeploymentWorker', () => {
   let worker: DeploymentWorker;
@@ -18,6 +20,7 @@ describe('DeploymentWorker', () => {
   let mockDeploymentRepo: jest.Mocked<Partial<Repository<Deployment>>>;
   let mockProjectRepo: jest.Mocked<Partial<Repository<Project>>>;
   let mockLogsGateway: jest.Mocked<Partial<LogsGateway>>;
+  let mockNotificationsService: jest.Mocked<Partial<NotificationsService>>;
 
   const mockJobData: DeploymentJobData = {
     deliveryId: 'uuid-1234',
@@ -43,6 +46,10 @@ describe('DeploymentWorker', () => {
     cpuLimit: 2.0,
     memoryLimit: '1g',
     memorySwap: '2g',
+    healthcheckPath: null,
+    healthcheckExpectedStatus: 200,
+    healthcheckTimeout: 5,
+    healthcheckRetries: 3,
     userId: 'uuid-user-1',
     user: null as any,
     deployments: [],
@@ -81,6 +88,10 @@ describe('DeploymentWorker', () => {
         logs: 'Container healthy',
         durationMs: 20,
       }),
+      checkHttpHealth: jest.fn<any>().mockResolvedValue({
+        logs: 'HTTP health verified: 200',
+        durationMs: 15,
+      }),
       cleanup: jest.fn<any>().mockResolvedValue(undefined as never),
     };
 
@@ -95,6 +106,10 @@ describe('DeploymentWorker', () => {
     mockLogsGateway = {
       emitLog: jest.fn(),
       emitStatus: jest.fn(),
+    };
+
+    mockNotificationsService = {
+      notifyDeploymentEvent: jest.fn<any>().mockResolvedValue([]),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -115,6 +130,10 @@ describe('DeploymentWorker', () => {
         {
           provide: LogsGateway,
           useValue: mockLogsGateway,
+        },
+        {
+          provide: NotificationsService,
+          useValue: mockNotificationsService,
         },
       ],
     }).compile();
@@ -223,6 +242,52 @@ describe('DeploymentWorker', () => {
         'docker_deploy',
         'healthcheck',
       ]);
+      expect(
+        mockNotificationsService.notifyDeploymentEvent,
+      ).toHaveBeenCalledWith(
+        NotificationEvent.DEPLOY_STARTED,
+        expect.objectContaining({
+          projectId: 'uuid-project-1',
+          projectName: 'sample-project',
+        }),
+      );
+      expect(
+        mockNotificationsService.notifyDeploymentEvent,
+      ).toHaveBeenCalledWith(
+        NotificationEvent.DEPLOY_SUCCEEDED,
+        expect.objectContaining({
+          projectId: 'uuid-project-1',
+          url: 'http://sample-project.localhost',
+        }),
+      );
+    });
+
+    it('should execute HTTP healthcheck when project has healthcheckPath configured', async () => {
+      mockProjectRepo.findOne = jest.fn<any>().mockResolvedValue({
+        ...mockProject,
+        healthcheckPath: '/healthz',
+        healthcheckExpectedStatus: 200,
+        healthcheckTimeout: 5,
+        healthcheckRetries: 3,
+      });
+
+      const mockJob = {
+        id: 'job-http-health',
+        name: DEPLOY_JOB,
+        data: mockJobData,
+        updateProgress: jest.fn<any>().mockResolvedValue(undefined as never),
+      } as unknown as Job;
+
+      await worker.process(mockJob as any);
+
+      expect(mockDockerPipeline.checkHttpHealth).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: 'http://sample-project.localhost/healthz',
+          expectedStatus: 200,
+          timeoutSeconds: 5,
+          retries: 3,
+        }),
+      );
     });
 
     it('should update DB to FAILED, stream error to LogsGateway, and cleanup workspace when a stage fails', async () => {
@@ -256,6 +321,15 @@ describe('DeploymentWorker', () => {
       expect(mockDeploymentRepo.update).toHaveBeenCalledWith(
         'uuid-deployment-1',
         expect.objectContaining({ status: DeploymentStatus.FAILED }),
+      );
+      expect(
+        mockNotificationsService.notifyDeploymentEvent,
+      ).toHaveBeenCalledWith(
+        NotificationEvent.DEPLOY_FAILED,
+        expect.objectContaining({
+          projectId: 'uuid-project-1',
+          errorMessage: 'Docker build failed: syntax error',
+        }),
       );
       expect(mockDockerPipeline.cleanup).toHaveBeenCalledWith(
         '/tmp/test-workspace',

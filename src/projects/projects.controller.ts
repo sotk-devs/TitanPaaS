@@ -109,7 +109,11 @@ export class ProjectsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Actualizar configuración de un proyecto' })
+  @ApiOperation({
+    summary: 'Actualizar configuración de un proyecto',
+    description:
+      'Actualiza la configuración del proyecto. Si se modifican las variables de entorno y el proyecto está desplegado, el contenedor se recrea en caliente con las nuevas variables sin re-compilar la imagen.',
+  })
   @ApiParam({
     name: 'id',
     type: 'string',

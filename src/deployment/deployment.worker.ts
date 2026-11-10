@@ -14,6 +14,8 @@ import { Deployment } from '../deployments/entities/deployment.entity.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js';
 import { LogsGateway } from '../logs/logs.gateway.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { NotificationEvent } from '../notifications/enums/notification-event.enum.js';
 
 @Processor(DEPLOY_QUEUE)
 export class DeploymentWorker extends WorkerHost {
@@ -29,6 +31,8 @@ export class DeploymentWorker extends WorkerHost {
     private readonly projectRepository?: Repository<Project>,
     @Optional()
     private readonly logsGateway?: LogsGateway,
+    @Optional()
+    private readonly notificationsService?: NotificationsService,
   ) {
     super();
   }
@@ -88,6 +92,7 @@ export class DeploymentWorker extends WorkerHost {
     if (data.projectId && this.projectRepository) {
       project = await this.projectRepository.findOne({
         where: { id: data.projectId },
+        relations: ['customDomains'],
       });
       if (project) {
         port = project.port || 3000;
@@ -131,6 +136,22 @@ export class DeploymentWorker extends WorkerHost {
           status: DeploymentStatus.BUILDING,
           startedAt: new Date(startedAt),
         });
+      }
+
+      if (data.projectId && this.notificationsService) {
+        await this.notificationsService.notifyDeploymentEvent(
+          NotificationEvent.DEPLOY_STARTED,
+          {
+            projectId: data.projectId,
+            projectName: project?.name || data.repositoryName,
+            repositoryName: data.repositoryName,
+            deploymentId: data.deploymentId,
+            branch: data.branch,
+            commitSha: data.commitSha,
+            commitMessage: data.commitMessage,
+            author: data.author,
+          },
+        );
       }
 
       // Stage 1: Clonación del repositorio
@@ -228,6 +249,11 @@ export class DeploymentWorker extends WorkerHost {
             }
           : undefined;
 
+      const verifiedDomains =
+        project?.customDomains
+          ?.filter((d: any) => d.status === 'VERIFIED')
+          ?.map((d: any) => d.domain) || [];
+
       const runResult = await this.dockerPipeline.runContainer(
         imageTag,
         containerName,
@@ -238,6 +264,7 @@ export class DeploymentWorker extends WorkerHost {
           baseDomain: process.env.BASE_DOMAIN || 'localhost',
           network: process.env.DOCKER_NETWORK || 'titan-network',
           resourceLimits,
+          customDomains: verifiedDomains,
           onLog: emitLog,
           signal: abortSignal,
         },
@@ -275,6 +302,31 @@ export class DeploymentWorker extends WorkerHost {
           )
         : await this.dockerPipeline.checkHealth(containerId, emitLog);
       accumulatedLogs += `=== STAGE 4: HEALTHCHECK ===\n${healthResult.logs}\n\n`;
+
+      if (project?.healthcheckPath) {
+        const rawPath = project.healthcheckPath.trim();
+        const normalizedPath = rawPath.startsWith('/')
+          ? rawPath
+          : `/${rawPath}`;
+        const targetUrl = deploymentUrl
+          ? `${deploymentUrl}${normalizedPath}`
+          : `http://localhost:${port}${normalizedPath}`;
+
+        emitLog(
+          `🌐 Executing HTTP healthcheck on ${targetUrl} (expected: ${project.healthcheckExpectedStatus || 200}, retries: ${project.healthcheckRetries || 3}, timeout: ${project.healthcheckTimeout || 5}s)...\n`,
+        );
+
+        const httpHealthResult = await this.dockerPipeline.checkHttpHealth({
+          url: targetUrl,
+          expectedStatus: project.healthcheckExpectedStatus || 200,
+          timeoutSeconds: project.healthcheckTimeout || 5,
+          retries: project.healthcheckRetries || 3,
+          onLog: emitLog,
+          signal: abortSignal,
+        });
+
+        accumulatedLogs += `=== HTTP HEALTHCHECK ===\n${httpHealthResult.logs}\n\n`;
+      }
       await job.updateProgress(100);
       stages.push({
         name: 'healthcheck',
@@ -301,6 +353,24 @@ export class DeploymentWorker extends WorkerHost {
       );
       emitStatus(DeploymentStatus.DEPLOYED, 100, 'completed');
       emitLog(`✅ Deployment completed successfully in ${durationMs}ms\n`);
+
+      if (data.projectId && this.notificationsService) {
+        await this.notificationsService.notifyDeploymentEvent(
+          NotificationEvent.DEPLOY_SUCCEEDED,
+          {
+            projectId: data.projectId,
+            projectName: project?.name || data.repositoryName,
+            repositoryName: data.repositoryName,
+            deploymentId: data.deploymentId,
+            branch: data.branch,
+            commitSha: data.commitSha,
+            commitMessage: data.commitMessage,
+            author: data.author,
+            url: deploymentUrl,
+            durationMs,
+          },
+        );
+      }
 
       return {
         jobId: String(job.id),
@@ -409,6 +479,28 @@ export class DeploymentWorker extends WorkerHost {
 
       emitStatus(finalStatus, undefined, isCancelled ? 'cancelled' : 'failed');
       emitLog(`\n❌ ERROR: ${errorMessage}\n`, 'stderr');
+
+      if (
+        finalStatus === DeploymentStatus.FAILED &&
+        data.projectId &&
+        this.notificationsService
+      ) {
+        await this.notificationsService.notifyDeploymentEvent(
+          NotificationEvent.DEPLOY_FAILED,
+          {
+            projectId: data.projectId,
+            projectName: project?.name || data.repositoryName,
+            repositoryName: data.repositoryName,
+            deploymentId: data.deploymentId,
+            branch: data.branch,
+            commitSha: data.commitSha,
+            commitMessage: data.commitMessage,
+            author: data.author,
+            durationMs: Date.now() - startTime,
+            errorMessage,
+          },
+        );
+      }
 
       throw error;
     } finally {

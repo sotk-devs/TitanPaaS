@@ -17,6 +17,10 @@ describe('Project Entity', () => {
     project.cpuLimit = 1.5;
     project.memoryLimit = '512m';
     project.memorySwap = '1g';
+    project.healthcheckPath = '/healthz';
+    project.healthcheckExpectedStatus = 200;
+    project.healthcheckTimeout = 5;
+    project.healthcheckRetries = 3;
     project.userId = 'uuid-user-1';
 
     const user = new User();
@@ -44,6 +48,10 @@ describe('Project Entity', () => {
     expect(project.cpuLimit).toBe(1.5);
     expect(project.memoryLimit).toBe('512m');
     expect(project.memorySwap).toBe('1g');
+    expect(project.healthcheckPath).toBe('/healthz');
+    expect(project.healthcheckExpectedStatus).toBe(200);
+    expect(project.healthcheckTimeout).toBe(5);
+    expect(project.healthcheckRetries).toBe(3);
     expect(project.userId).toBe('uuid-user-1');
     expect(project.user).toBe(user);
     expect(project.deployments).toHaveLength(1);

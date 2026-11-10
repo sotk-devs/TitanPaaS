@@ -15,6 +15,9 @@ import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { ProjectsModule } from './projects/projects.module.js';
 import { DeploymentsModule } from './deployments/deployments.module.js';
+import { NotificationsModule } from './notifications/notifications.module.js';
+import { TerminalModule } from './terminal/terminal.module.js';
+import { DomainsModule } from './domains/domains.module.js';
 import { getTypeOrmConfig } from './database/database.config.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -40,6 +43,9 @@ const databaseModules =
         AuthModule,
         ProjectsModule,
         DeploymentsModule,
+        NotificationsModule,
+        TerminalModule,
+        DomainsModule,
       ]
     : [];
 

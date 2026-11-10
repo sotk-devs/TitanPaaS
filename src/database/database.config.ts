@@ -2,6 +2,7 @@ import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { User } from '../users/entities/user.entity.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { Deployment } from '../deployments/entities/deployment.entity.js';
+import { NotificationWebhook } from '../notifications/entities/notification-webhook.entity.js';
 import { CustomDomain } from '../domains/entities/custom-domain.entity.js';
 
 export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
@@ -11,7 +12,7 @@ export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
     type: 'postgres',
     autoLoadEntities: true,
     synchronize: false,
-    entities: [User, Project, Deployment, CustomDomain],
+    entities: [User, Project, Deployment, NotificationWebhook, CustomDomain],
     migrations: ['dist/database/migrations/*.js'],
     // Avoid hanging if database is unavailable
     retryAttempts: isTest ? 1 : 10,

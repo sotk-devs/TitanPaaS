@@ -92,6 +92,7 @@ export class DeploymentWorker extends WorkerHost {
     if (data.projectId && this.projectRepository) {
       project = await this.projectRepository.findOne({
         where: { id: data.projectId },
+        relations: ['customDomains'],
       });
       if (project) {
         port = project.port || 3000;
@@ -239,6 +240,11 @@ export class DeploymentWorker extends WorkerHost {
         ? this.dockerPipeline.generateSubdomain(project.name)
         : this.dockerPipeline.generateSubdomain(data.repositoryName);
 
+      const verifiedDomains =
+        project?.customDomains
+          ?.filter((d: any) => d.status === 'VERIFIED')
+          ?.map((d: any) => d.domain) || [];
+
       const runResult = await this.dockerPipeline.runContainer(
         imageTag,
         containerName,
@@ -248,6 +254,7 @@ export class DeploymentWorker extends WorkerHost {
           subdomain,
           baseDomain: process.env.BASE_DOMAIN || 'localhost',
           network: process.env.DOCKER_NETWORK || 'titan-network',
+          customDomains: verifiedDomains,
           onLog: emitLog,
           signal: abortSignal,
         },
@@ -285,6 +292,31 @@ export class DeploymentWorker extends WorkerHost {
           )
         : await this.dockerPipeline.checkHealth(containerId, emitLog);
       accumulatedLogs += `=== STAGE 4: HEALTHCHECK ===\n${healthResult.logs}\n\n`;
+
+      if (project?.healthcheckPath) {
+        const rawPath = project.healthcheckPath.trim();
+        const normalizedPath = rawPath.startsWith('/')
+          ? rawPath
+          : `/${rawPath}`;
+        const targetUrl = deploymentUrl
+          ? `${deploymentUrl}${normalizedPath}`
+          : `http://localhost:${port}${normalizedPath}`;
+
+        emitLog(
+          `🌐 Executing HTTP healthcheck on ${targetUrl} (expected: ${project.healthcheckExpectedStatus || 200}, retries: ${project.healthcheckRetries || 3}, timeout: ${project.healthcheckTimeout || 5}s)...\n`,
+        );
+
+        const httpHealthResult = await this.dockerPipeline.checkHttpHealth({
+          url: targetUrl,
+          expectedStatus: project.healthcheckExpectedStatus || 200,
+          timeoutSeconds: project.healthcheckTimeout || 5,
+          retries: project.healthcheckRetries || 3,
+          onLog: emitLog,
+          signal: abortSignal,
+        });
+
+        accumulatedLogs += `=== HTTP HEALTHCHECK ===\n${httpHealthResult.logs}\n\n`;
+      }
       await job.updateProgress(100);
       stages.push({
         name: 'healthcheck',

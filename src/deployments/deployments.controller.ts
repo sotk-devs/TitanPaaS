@@ -5,6 +5,7 @@ import {
   Body,
   Param,
   Query,
+  Res,
   UseGuards,
   Request,
   HttpCode,
@@ -15,13 +16,16 @@ import {
   ApiBearerAuth,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { DeploymentsService } from './deployments.service.js';
 import { DeploymentPaginationQueryDto } from './dto/deployment-pagination-query.dto.js';
 import { TriggerDeployDto } from './dto/trigger-deploy.dto.js';
 import { RollbackDeployDto } from './dto/rollback-deploy.dto.js';
+import { DownloadLogsQueryDto } from './dto/download-logs-query.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 
 interface RequestWithUser {
@@ -102,6 +106,54 @@ export class DeploymentsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.deploymentsService.findOne(req.user.id, id);
+  }
+
+  @Get('deployments/:id/logs/download')
+  @ApiOperation({
+    summary:
+      'Descargar los logs históricos completos de un despliegue en formato TXT o JSON',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    format: 'uuid',
+    description: 'Identificador único (UUID) del despliegue',
+  })
+  @ApiQuery({
+    name: 'format',
+    enum: ['txt', 'json'],
+    required: false,
+    description: 'Formato del archivo de logs (txt o json). Por defecto txt',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Archivo de logs descargado exitosamente.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado.',
+  })
+  @ApiResponse({
+    status: 404,
+    description:
+      'Despliegue no encontrado o no pertenece a un proyecto del usuario autenticado.',
+  })
+  async downloadLogs(
+    @Request() req: RequestWithUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: DownloadLogsQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { content, contentType, filename } =
+      await this.deploymentsService.getDeploymentLogsForDownload(
+        req.user.id,
+        id,
+        query?.format,
+      );
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return content;
   }
 
   @Post('projects/:id/deploy')

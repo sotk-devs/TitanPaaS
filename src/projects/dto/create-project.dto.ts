@@ -67,4 +67,47 @@ export class CreateProjectDto {
     message: 'Las variables de entorno deben ser un objeto clave-valor',
   })
   envVariables?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    example: '/healthz',
+    description: 'Ruta HTTP para verificar la salud del contenedor',
+  })
+  @IsOptional()
+  @IsString({ message: 'La ruta de healthcheck debe ser una cadena de texto' })
+  healthcheckPath?: string;
+
+  @ApiPropertyOptional({
+    example: 200,
+    description: 'Código de estado HTTP esperado',
+    default: 200,
+  })
+  @IsOptional()
+  @IsInt({
+    message: 'El código de respuesta esperado debe ser un número entero',
+  })
+  @Min(100, { message: 'El código HTTP mínimo es 100' })
+  @Max(599, { message: 'El código HTTP máximo es 599' })
+  healthcheckExpectedStatus?: number;
+
+  @ApiPropertyOptional({
+    example: 5,
+    description: 'Timeout en segundos por intento de healthcheck',
+    default: 5,
+  })
+  @IsOptional()
+  @IsInt({ message: 'El timeout debe ser un número entero' })
+  @Min(1, { message: 'El timeout mínimo es 1 segundo' })
+  @Max(300, { message: 'El timeout máximo es 300 segundos' })
+  healthcheckTimeout?: number;
+
+  @ApiPropertyOptional({
+    example: 3,
+    description: 'Número máximo de reintentos de healthcheck',
+    default: 3,
+  })
+  @IsOptional()
+  @IsInt({ message: 'Los reintentos deben ser un número entero' })
+  @Min(1, { message: 'Mínimo 1 reintento' })
+  @Max(30, { message: 'Máximo 30 reintentos' })
+  healthcheckRetries?: number;
 }

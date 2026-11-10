@@ -15,11 +15,18 @@ import { Project } from '../projects/entities/project.entity.js';
 import { DeploymentPaginationQueryDto } from './dto/deployment-pagination-query.dto.js';
 import { TriggerDeployDto } from './dto/trigger-deploy.dto.js';
 import { RollbackDeployDto } from './dto/rollback-deploy.dto.js';
+import { LogDownloadFormat } from './dto/download-logs-query.dto.js';
 import { DeploymentStatus } from './enums/deployment-status.enum.js';
 import { DEPLOY_QUEUE, DEPLOY_JOB } from '../webhooks/webhooks.constants.js';
 import type { DeploymentJobData } from '../webhooks/interfaces/github-payload.interface.js';
 import { DockerPipelineService } from '../deployment/docker-pipeline.service.js';
 import { LogsGateway } from '../logs/logs.gateway.js';
+
+export interface DownloadLogsResult {
+  filename: string;
+  contentType: string;
+  content: string;
+}
 
 export interface PaginatedDeployments {
   items: Deployment[];
@@ -362,5 +369,46 @@ export class DeploymentsService {
     }
 
     return Object.assign(savedDeployment, { jobId });
+  }
+
+  async getDeploymentLogsForDownload(
+    userId: string,
+    id: string,
+    format: LogDownloadFormat = LogDownloadFormat.TXT,
+  ): Promise<DownloadLogsResult> {
+    const deployment = await this.findOne(userId, id);
+    const projectName = deployment.project?.name || 'project';
+    const sanitizedProjectName = projectName
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '-');
+    const logs = deployment.logs || '';
+
+    if (format === LogDownloadFormat.JSON) {
+      const jsonPayload = {
+        deploymentId: deployment.id,
+        projectId: deployment.projectId,
+        projectName: deployment.project?.name,
+        status: deployment.status,
+        commitSha: deployment.commitSha,
+        commitMessage: deployment.commitMessage,
+        branch: deployment.branch,
+        startedAt: deployment.startedAt,
+        finishedAt: deployment.finishedAt,
+        stages: deployment.stages || [],
+        logs,
+      };
+
+      return {
+        filename: `${sanitizedProjectName}-deployment-${deployment.id.substring(0, 8)}-logs.json`,
+        contentType: 'application/json; charset=utf-8',
+        content: JSON.stringify(jsonPayload, null, 2),
+      };
+    }
+
+    return {
+      filename: `${sanitizedProjectName}-deployment-${deployment.id.substring(0, 8)}-logs.txt`,
+      contentType: 'text/plain; charset=utf-8',
+      content: logs,
+    };
   }
 }

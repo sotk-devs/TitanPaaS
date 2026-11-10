@@ -137,7 +137,7 @@ export class DatabasesService {
       const envKey =
         dto.type === DatabaseType.REDIS ? 'REDIS_URL' : 'DATABASE_URL';
       const updatedEnv = {
-        ...(project.envVariables || {}),
+        ...project.envVariables,
         [envKey]: connectionUrl,
       };
       project.envVariables = updatedEnv;

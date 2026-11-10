@@ -11,17 +11,25 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  Query,
+  Res,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
   ApiParam,
+  ApiQuery,
+  ApiProduces,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { ProjectsService } from './projects.service.js';
 import { CreateProjectDto } from './dto/create-project.dto.js';
 import { UpdateProjectDto } from './dto/update-project.dto.js';
+import { ImportEnvDto } from './dto/import-env.dto.js';
+import { ImportEnvResponseDto } from './dto/import-env-response.dto.js';
+import { ExportEnvResponseDto } from './dto/export-env-response.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 
 interface RequestWithUser {
@@ -275,5 +283,95 @@ export class ProjectsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.projectsService.restartContainer(req.user.id, id);
+  }
+
+  @Post(':id/env/import')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Importación masiva de variables de entorno desde formato .env',
+    description:
+      'Parsea el contenido en texto plano de un archivo .env y actualiza la configuración del proyecto. Soporta modo "merge" (predeterminado) o "replace". Si el proyecto está desplegado, se recrea el contenedor en caliente.',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    format: 'uuid',
+    description: 'Identificador único (UUID) del proyecto',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Variables de entorno importadas exitosamente.',
+    type: ImportEnvResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Formato de archivo .env inválido o clave incorrecta.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado.',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Proyecto no encontrado.',
+  })
+  importEnv(
+    @Request() req: RequestWithUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() importEnvDto: ImportEnvDto,
+  ): Promise<ImportEnvResponseDto> {
+    return this.projectsService.importEnv(req.user.id, id, importEnvDto);
+  }
+
+  @Get(':id/env/export')
+  @ApiOperation({
+    summary: 'Exportar variables de entorno en formato .env',
+    description:
+      'Devuelve las variables de entorno del proyecto en formato estándar .env (texto plano con comillas y secuencias de escape según corresponda) o como objeto estructurado en formato JSON.',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    format: 'uuid',
+    description: 'Identificador único (UUID) del proyecto',
+  })
+  @ApiQuery({
+    name: 'format',
+    required: false,
+    enum: ['json', 'text', 'raw'],
+    description:
+      'Formato de respuesta: "json" (predeterminado) para objeto con raw y variables descifradas, o "text" / "raw" para descarga directa del archivo .env.',
+  })
+  @ApiProduces('application/json', 'text/plain')
+  @ApiResponse({
+    status: 200,
+    description: 'Variables exportadas exitosamente.',
+    type: ExportEnvResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado.',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Proyecto no encontrado.',
+  })
+  async exportEnv(
+    @Request() req: RequestWithUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('format') format?: string,
+    @Res({ passthrough: true }) res?: Response,
+  ): Promise<ExportEnvResponseDto | string> {
+    const result = await this.projectsService.exportEnv(req.user.id, id);
+
+    if (format === 'text' || format === 'raw') {
+      if (res) {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename=".env"');
+      }
+      return result.raw;
+    }
+
+    return result;
   }
 }

@@ -96,7 +96,35 @@ describe('DockerPipelineService', () => {
     });
   });
 
-  describe('buildImage', () => {
+  describe('hasDockerfile', () => {
+    it('should return false if directory does not have Dockerfile', async () => {
+      const result = await service.hasDockerfile(testDir);
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('detectRuntime', () => {
+    it('should detect Dockerfile if present', async () => {
+      jest.spyOn(service, 'hasDockerfile').mockResolvedValue(true);
+      const result = await service.detectRuntime(testDir);
+      expect(result).toEqual({
+        hasDockerfile: true,
+        buildTool: 'docker',
+      });
+    });
+
+    it('should return Unknown runtime when no matching files are found', async () => {
+      jest.spyOn(service, 'hasDockerfile').mockResolvedValue(false);
+      const result = await service.detectRuntime(testDir);
+      expect(result).toEqual({
+        hasDockerfile: false,
+        language: 'Unknown',
+        buildTool: 'nixpacks',
+      });
+    });
+  });
+
+  describe('buildWithDocker', () => {
     it('should invoke docker build and return output logs', async () => {
       jest.spyOn(service, 'executeCommand').mockResolvedValue({
         stdout: 'Successfully built image-id',
@@ -104,7 +132,7 @@ describe('DockerPipelineService', () => {
         exitCode: 0,
       });
 
-      const result = await service.buildImage('my-image:latest', testDir);
+      const result = await service.buildWithDocker('my-image:latest', testDir);
 
       expect(service.executeCommand).toHaveBeenCalledWith(
         'docker',
@@ -122,7 +150,7 @@ describe('DockerPipelineService', () => {
         exitCode: 0,
       });
 
-      await service.buildImage('my-image:latest', testDir, mockOnLog);
+      await service.buildWithDocker('my-image:latest', testDir, mockOnLog);
 
       expect(service.executeCommand).toHaveBeenCalledWith(
         'docker',
@@ -130,6 +158,107 @@ describe('DockerPipelineService', () => {
         testDir,
         mockOnLog,
       );
+    });
+  });
+
+  describe('buildWithNixpacks', () => {
+    it('should invoke nixpacks build and return output logs', async () => {
+      jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'Successfully built with nixpacks',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const result = await service.buildWithNixpacks(
+        'my-image:latest',
+        testDir,
+      );
+
+      expect(service.executeCommand).toHaveBeenCalledWith(
+        'nixpacks',
+        ['build', '.', '--name', 'my-image:latest'],
+        testDir,
+      );
+      expect(result.logs).toContain('Successfully built with nixpacks');
+    });
+
+    it('should pass onLog callback to executeCommand when provided', async () => {
+      const mockOnLog = jest.fn();
+      jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'Nixpacks phase 1...',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      await service.buildWithNixpacks('my-image:latest', testDir, mockOnLog);
+
+      expect(service.executeCommand).toHaveBeenCalledWith(
+        'nixpacks',
+        ['build', '.', '--name', 'my-image:latest'],
+        testDir,
+        mockOnLog,
+      );
+    });
+  });
+
+  describe('buildImage', () => {
+    it('should invoke docker build when Dockerfile is detected', async () => {
+      jest.spyOn(service, 'detectRuntime').mockResolvedValue({
+        hasDockerfile: true,
+        buildTool: 'docker',
+      });
+      jest.spyOn(service, 'buildWithDocker').mockResolvedValue({
+        logs: 'Docker built successfully',
+        durationMs: 50,
+      });
+
+      const mockOnLog = jest.fn();
+      const result = await service.buildImage(
+        'my-image:latest',
+        testDir,
+        mockOnLog,
+      );
+
+      expect(service.buildWithDocker).toHaveBeenCalledWith(
+        'my-image:latest',
+        testDir,
+        mockOnLog,
+      );
+      expect(mockOnLog).toHaveBeenCalledWith(
+        expect.stringContaining('Dockerfile detected'),
+        'stdout',
+      );
+      expect(result.logs).toBe('Docker built successfully');
+    });
+
+    it('should invoke nixpacks build when Dockerfile is not detected', async () => {
+      jest.spyOn(service, 'detectRuntime').mockResolvedValue({
+        hasDockerfile: false,
+        language: 'Node.js',
+        buildTool: 'nixpacks',
+      });
+      jest.spyOn(service, 'buildWithNixpacks').mockResolvedValue({
+        logs: 'Nixpacks built successfully',
+        durationMs: 70,
+      });
+
+      const mockOnLog = jest.fn();
+      const result = await service.buildImage(
+        'my-image:latest',
+        testDir,
+        mockOnLog,
+      );
+
+      expect(service.buildWithNixpacks).toHaveBeenCalledWith(
+        'my-image:latest',
+        testDir,
+        mockOnLog,
+      );
+      expect(mockOnLog).toHaveBeenCalledWith(
+        expect.stringContaining('Auto-detected Node.js runtime'),
+        'stdout',
+      );
+      expect(result.logs).toBe('Nixpacks built successfully');
     });
   });
 
@@ -240,6 +369,180 @@ describe('DockerPipelineService', () => {
       await expect(service.checkHealth('container-id-12345')).rejects.toThrow(
         'Container is not running. Current status: exited',
       );
+    });
+  });
+
+  describe('checkHttpHealth', () => {
+    const originalFetch = global.fetch;
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it('should return success when status matches expectedStatus', async () => {
+      global.fetch = jest.fn<any>().mockResolvedValue({
+        status: 200,
+      });
+
+      const onLog = jest.fn();
+      const result = await service.checkHttpHealth({
+        url: 'http://localhost:3000/healthz',
+        expectedStatus: 200,
+        retries: 2,
+        retryIntervalMs: 10,
+        onLog,
+      });
+
+      expect(result.logs).toContain('HTTP Healthcheck passed');
+      expect(onLog).toHaveBeenCalled();
+    });
+
+    it('should retry and succeed if subsequent attempt returns expectedStatus', async () => {
+      global.fetch = jest
+        .fn<any>()
+        .mockResolvedValueOnce({ status: 503 })
+        .mockResolvedValueOnce({ status: 200 });
+
+      const result = await service.checkHttpHealth({
+        url: 'http://localhost:3000/healthz',
+        expectedStatus: 200,
+        retries: 3,
+        retryIntervalMs: 10,
+      });
+
+      expect(result.logs).toContain('HTTP Healthcheck passed');
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should throw error when all retries fail with unexpected status', async () => {
+      global.fetch = jest.fn<any>().mockResolvedValue({ status: 500 });
+
+      await expect(
+        service.checkHttpHealth({
+          url: 'http://localhost:3000/healthz',
+          expectedStatus: 200,
+          retries: 2,
+          retryIntervalMs: 10,
+        }),
+      ).rejects.toThrow('HTTP Healthcheck failed');
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should throw error when all retries fail with network error', async () => {
+      global.fetch = jest
+        .fn<any>()
+        .mockRejectedValue(new Error('ECONNREFUSED'));
+
+      await expect(
+        service.checkHttpHealth({
+          url: 'http://localhost:3000/healthz',
+          expectedStatus: 200,
+          retries: 2,
+          retryIntervalMs: 10,
+        }),
+      ).rejects.toThrow('HTTP Healthcheck failed');
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should throw error if signal is aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        service.checkHttpHealth({
+          url: 'http://localhost:3000/healthz',
+          signal: controller.signal,
+        }),
+      ).rejects.toThrow('Healthcheck operation was cancelled');
+    });
+  });
+
+  describe('abortDeployment and abort signals', () => {
+    it('should register an abort controller and return its signal', () => {
+      const signal = service.registerDeploymentAbort('dep-123');
+      expect(signal).toBeDefined();
+      expect(signal.aborted).toBe(false);
+    });
+
+    it('should abort an active deployment signal and return true', () => {
+      const signal = service.registerDeploymentAbort('dep-123');
+      const aborted = service.abortDeployment('dep-123');
+
+      expect(aborted).toBe(true);
+      expect(signal.aborted).toBe(true);
+    });
+
+    it('should return false when trying to abort an unknown or already aborted deployment', () => {
+      const aborted = service.abortDeployment('unknown-dep');
+      expect(aborted).toBe(false);
+    });
+
+    it('should remove the controller when unregistered', () => {
+      service.registerDeploymentAbort('dep-123');
+      service.unregisterDeploymentAbort('dep-123');
+      expect(service.abortDeployment('dep-123')).toBe(false);
+    });
+  });
+
+  describe('Container Lifecycle methods', () => {
+    it('should execute docker stop on stopContainer', async () => {
+      const spy = jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'titan-app-test\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const result = await service.stopContainer('titan-app-test');
+
+      expect(spy).toHaveBeenCalledWith('docker', ['stop', 'titan-app-test']);
+      expect(result.logs).toBe('titan-app-test');
+      expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should execute docker start on startContainer', async () => {
+      const spy = jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'titan-app-test\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const result = await service.startContainer('titan-app-test');
+
+      expect(spy).toHaveBeenCalledWith('docker', ['start', 'titan-app-test']);
+      expect(result.logs).toBe('titan-app-test');
+    });
+
+    it('should execute docker restart on restartContainer', async () => {
+      const spy = jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'titan-app-test\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const result = await service.restartContainer('titan-app-test');
+
+      expect(spy).toHaveBeenCalledWith('docker', ['restart', 'titan-app-test']);
+      expect(result.logs).toBe('titan-app-test');
+    });
+
+    it('should return container status on getContainerStatus', async () => {
+      jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'running\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const status = await service.getContainerStatus('titan-app-test');
+      expect(status).toBe('running');
+    });
+
+    it('should return not_found when inspect fails on getContainerStatus', async () => {
+      jest
+        .spyOn(service, 'executeCommand')
+        .mockRejectedValue(new Error('No such container'));
+
+      const status = await service.getContainerStatus('titan-app-nonexistent');
+      expect(status).toBe('not_found');
     });
   });
 });

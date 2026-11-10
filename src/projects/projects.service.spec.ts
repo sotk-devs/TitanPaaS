@@ -2,13 +2,23 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { ProjectsService } from './projects.service.js';
 import { Project } from './entities/project.entity.js';
+import { Deployment } from '../deployments/entities/deployment.entity.js';
+import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js';
+import { DomainStatus } from '../domains/enums/domain-status.enum.js';
+import { DockerPipelineService } from '../deployment/docker-pipeline.service.js';
 
 describe('ProjectsService', () => {
   let service: ProjectsService;
   let repository: jest.Mocked<Partial<Repository<Project>>>;
+  let deploymentRepository: jest.Mocked<Partial<Repository<Deployment>>>;
+  let mockDockerPipeline: jest.Mocked<Partial<DockerPipelineService>>;
 
   const mockUserId = 'uuid-user-1';
   const mockProjectId = 'uuid-project-1';
@@ -21,9 +31,14 @@ describe('ProjectsService', () => {
     branch: 'main',
     port: 3000,
     envVariables: { NODE_ENV: 'production' },
+    healthcheckPath: null,
+    healthcheckExpectedStatus: 200,
+    healthcheckTimeout: 5,
+    healthcheckRetries: 3,
     userId: mockUserId,
     user: null as any,
     deployments: [],
+    customDomains: [],
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -46,12 +61,60 @@ describe('ProjectsService', () => {
         .mockImplementation((entity: any) => Promise.resolve(entity)),
     };
 
+    deploymentRepository = {
+      findOne: jest.fn<any>(),
+      save: jest
+        .fn<any>()
+        .mockImplementation((entity: any) => Promise.resolve(entity)),
+    };
+
+    mockDockerPipeline = {
+      generateContainerName: jest
+        .fn<any>()
+        .mockReturnValue('titan-app-sotk-devs-sample-repo'),
+      generateImageTag: jest
+        .fn<any>()
+        .mockReturnValue('titan-sotk-devs-sample-repo:abc1234'),
+      generateSubdomain: jest.fn<any>().mockReturnValue('sample-project'),
+      runContainer: jest.fn<any>().mockResolvedValue({
+        containerId: 'new-container-id-456',
+        url: 'http://sample-project.localhost',
+        logs: 'Container started with ID: new-container-id-456',
+        durationMs: 50,
+      }),
+      checkHealth: jest.fn<any>().mockResolvedValue({
+        logs: 'Container health verified: running',
+        durationMs: 25,
+      }),
+      getContainerStatus: jest.fn<any>().mockResolvedValue('running'),
+      stopContainer: jest.fn<any>().mockResolvedValue({
+        logs: 'titan-app-sotk-devs-sample-repo stopped',
+        durationMs: 100,
+      }),
+      startContainer: jest.fn<any>().mockResolvedValue({
+        logs: 'titan-app-sotk-devs-sample-repo started',
+        durationMs: 100,
+      }),
+      restartContainer: jest.fn<any>().mockResolvedValue({
+        logs: 'titan-app-sotk-devs-sample-repo restarted',
+        durationMs: 150,
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProjectsService,
         {
           provide: getRepositoryToken(Project),
           useValue: repository,
+        },
+        {
+          provide: getRepositoryToken(Deployment),
+          useValue: deploymentRepository,
+        },
+        {
+          provide: DockerPipelineService,
+          useValue: mockDockerPipeline,
         },
       ],
     }).compile();
@@ -125,7 +188,7 @@ describe('ProjectsService', () => {
 
       expect(repository.findOne).toHaveBeenCalledWith({
         where: { id: mockProjectId, userId: mockUserId },
-        relations: ['deployments'],
+        relations: ['deployments', 'customDomains'],
       });
       expect(result).toEqual(mockProject);
     });
@@ -177,6 +240,162 @@ describe('ProjectsService', () => {
         service.update(mockUserId, 'invalid-id', { name: 'foo' }),
       ).rejects.toThrow(NotFoundException);
     });
+
+    it('should recreate container in hot reload when envVariables is modified and project has active deployment', async () => {
+      const mockDeployment: Partial<Deployment> = {
+        id: 'deploy-uuid-1',
+        projectId: mockProjectId,
+        status: DeploymentStatus.DEPLOYED,
+        commitSha: 'commit123456',
+        containerId: 'old-container-id',
+        finishedAt: new Date(),
+      };
+
+      (repository.findOne as jest.Mock<any>).mockResolvedValue({
+        ...mockProject,
+      });
+      (deploymentRepository.findOne as jest.Mock<any>).mockResolvedValue(
+        mockDeployment,
+      );
+
+      const result = await service.update(mockUserId, mockProjectId, {
+        envVariables: { NODE_ENV: 'staging', DB_PORT: '5432' },
+      });
+
+      expect(mockDockerPipeline.generateContainerName).toHaveBeenCalledWith(
+        mockProject.repositoryName,
+      );
+      expect(mockDockerPipeline.getContainerStatus).toHaveBeenCalledWith(
+        'titan-app-sotk-devs-sample-repo',
+      );
+      expect(mockDockerPipeline.generateImageTag).toHaveBeenCalledWith(
+        mockProject.repositoryName,
+        'commit123456',
+      );
+      expect(mockDockerPipeline.runContainer).toHaveBeenCalledWith(
+        'titan-sotk-devs-sample-repo:abc1234',
+        'titan-app-sotk-devs-sample-repo',
+        3000,
+        { NODE_ENV: 'staging', DB_PORT: '5432' },
+        expect.objectContaining({
+          subdomain: 'sample-project',
+          customDomains: [],
+        }),
+      );
+      expect(mockDockerPipeline.checkHealth).toHaveBeenCalledWith(
+        'new-container-id-456',
+      );
+      expect(deploymentRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'deploy-uuid-1',
+          containerId: 'new-container-id-456',
+        }),
+      );
+      expect(repository.save).toHaveBeenCalled();
+      expect(result.envVariables).toEqual({
+        NODE_ENV: 'staging',
+        DB_PORT: '5432',
+      });
+    });
+
+    it('should pass verified custom domains to runContainer when hot reloading', async () => {
+      const mockDeployment: Partial<Deployment> = {
+        id: 'deploy-uuid-1',
+        projectId: mockProjectId,
+        status: DeploymentStatus.DEPLOYED,
+        commitSha: 'commit123456',
+        containerId: 'old-container-id',
+      };
+
+      (repository.findOne as jest.Mock<any>).mockResolvedValue({
+        ...mockProject,
+        customDomains: [
+          { domain: 'app.example.com', status: DomainStatus.VERIFIED },
+          { domain: 'pending.example.com', status: DomainStatus.PENDING },
+        ] as any,
+      });
+      (deploymentRepository.findOne as jest.Mock<any>).mockResolvedValue(
+        mockDeployment,
+      );
+
+      await service.update(mockUserId, mockProjectId, {
+        envVariables: { NEW_KEY: 'value' },
+      });
+
+      expect(mockDockerPipeline.runContainer).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(Number),
+        expect.any(Object),
+        expect.objectContaining({
+          customDomains: ['app.example.com'],
+        }),
+      );
+    });
+
+    it('should not recreate container if project has no previous successful deployment', async () => {
+      (repository.findOne as jest.Mock<any>).mockResolvedValue({
+        ...mockProject,
+      });
+      (deploymentRepository.findOne as jest.Mock<any>).mockResolvedValue(null);
+
+      await service.update(mockUserId, mockProjectId, {
+        envVariables: { NODE_ENV: 'development' },
+      });
+
+      expect(mockDockerPipeline.runContainer).not.toHaveBeenCalled();
+      expect(repository.save).toHaveBeenCalled();
+    });
+
+    it('should not recreate container if containerStatus is not_found', async () => {
+      const mockDeployment: Partial<Deployment> = {
+        id: 'deploy-uuid-1',
+        projectId: mockProjectId,
+        status: DeploymentStatus.DEPLOYED,
+      };
+
+      (repository.findOne as jest.Mock<any>).mockResolvedValue({
+        ...mockProject,
+      });
+      (
+        mockDockerPipeline.getContainerStatus as jest.Mock<any>
+      ).mockResolvedValue('not_found');
+      (deploymentRepository.findOne as jest.Mock<any>).mockResolvedValue(
+        mockDeployment,
+      );
+
+      await service.update(mockUserId, mockProjectId, {
+        envVariables: { NODE_ENV: 'development' },
+      });
+
+      expect(mockDockerPipeline.runContainer).not.toHaveBeenCalled();
+      expect(repository.save).toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException if runContainer or checkHealth fails during hot reload', async () => {
+      const mockDeployment: Partial<Deployment> = {
+        id: 'deploy-uuid-1',
+        projectId: mockProjectId,
+        status: DeploymentStatus.DEPLOYED,
+        commitSha: 'commit123456',
+      };
+
+      (repository.findOne as jest.Mock<any>).mockResolvedValue({
+        ...mockProject,
+      });
+      (deploymentRepository.findOne as jest.Mock<any>).mockResolvedValue(
+        mockDeployment,
+      );
+      (mockDockerPipeline.checkHealth as jest.Mock<any>).mockRejectedValue(
+        new Error('Container crashed on start'),
+      );
+
+      await expect(
+        service.update(mockUserId, mockProjectId, {
+          envVariables: { BROKEN_VAR: 'invalid' },
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('remove', () => {
@@ -198,6 +417,144 @@ describe('ProjectsService', () => {
       await expect(service.remove(mockUserId, 'invalid-id')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('Container Lifecycle Management', () => {
+    describe('stopContainer', () => {
+      it('should stop running container successfully', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue(mockProject);
+        (
+          mockDockerPipeline.getContainerStatus as jest.Mock<any>
+        ).mockResolvedValue('running');
+
+        const result = await service.stopContainer(mockUserId, mockProjectId);
+
+        expect(mockDockerPipeline.stopContainer).toHaveBeenCalledWith(
+          'titan-app-sotk-devs-sample-repo',
+        );
+        expect(result).toEqual({
+          projectId: mockProjectId,
+          containerName: 'titan-app-sotk-devs-sample-repo',
+          action: 'stop',
+          status: 'stopped',
+          message: 'Contenedor detenido exitosamente.',
+        });
+      });
+
+      it('should return already stopped message if container is exited', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue(mockProject);
+        (
+          mockDockerPipeline.getContainerStatus as jest.Mock<any>
+        ).mockResolvedValue('exited');
+
+        const result = await service.stopContainer(mockUserId, mockProjectId);
+
+        expect(mockDockerPipeline.stopContainer).not.toHaveBeenCalled();
+        expect(result.status).toBe('stopped');
+        expect(result.message).toContain('ya se encontraba detenido');
+      });
+
+      it('should throw BadRequestException if container was never deployed', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue(mockProject);
+        (
+          mockDockerPipeline.getContainerStatus as jest.Mock<any>
+        ).mockResolvedValue('not_found');
+
+        await expect(
+          service.stopContainer(mockUserId, mockProjectId),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('should throw NotFoundException if project does not exist', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue(null);
+
+        await expect(
+          service.stopContainer(mockUserId, 'non-existent-id'),
+        ).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    describe('startContainer', () => {
+      it('should start stopped container successfully', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue(mockProject);
+        (
+          mockDockerPipeline.getContainerStatus as jest.Mock<any>
+        ).mockResolvedValue('exited');
+
+        const result = await service.startContainer(mockUserId, mockProjectId);
+
+        expect(mockDockerPipeline.startContainer).toHaveBeenCalledWith(
+          'titan-app-sotk-devs-sample-repo',
+        );
+        expect(result).toEqual({
+          projectId: mockProjectId,
+          containerName: 'titan-app-sotk-devs-sample-repo',
+          action: 'start',
+          status: 'running',
+          message: 'Contenedor iniciado exitosamente.',
+        });
+      });
+
+      it('should return already running message if container is running', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue(mockProject);
+        (
+          mockDockerPipeline.getContainerStatus as jest.Mock<any>
+        ).mockResolvedValue('running');
+
+        const result = await service.startContainer(mockUserId, mockProjectId);
+
+        expect(mockDockerPipeline.startContainer).not.toHaveBeenCalled();
+        expect(result.status).toBe('running');
+        expect(result.message).toContain('ya se encuentra en ejecución');
+      });
+
+      it('should throw BadRequestException if container was never deployed', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue(mockProject);
+        (
+          mockDockerPipeline.getContainerStatus as jest.Mock<any>
+        ).mockResolvedValue('not_found');
+
+        await expect(
+          service.startContainer(mockUserId, mockProjectId),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    describe('restartContainer', () => {
+      it('should restart container successfully', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue(mockProject);
+        (
+          mockDockerPipeline.getContainerStatus as jest.Mock<any>
+        ).mockResolvedValue('running');
+
+        const result = await service.restartContainer(
+          mockUserId,
+          mockProjectId,
+        );
+
+        expect(mockDockerPipeline.restartContainer).toHaveBeenCalledWith(
+          'titan-app-sotk-devs-sample-repo',
+        );
+        expect(result).toEqual({
+          projectId: mockProjectId,
+          containerName: 'titan-app-sotk-devs-sample-repo',
+          action: 'restart',
+          status: 'running',
+          message: 'Contenedor reiniciado exitosamente.',
+        });
+      });
+
+      it('should throw BadRequestException if container does not exist', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue(mockProject);
+        (
+          mockDockerPipeline.getContainerStatus as jest.Mock<any>
+        ).mockResolvedValue('not_found');
+
+        await expect(
+          service.restartContainer(mockUserId, mockProjectId),
+        ).rejects.toThrow(BadRequestException);
+      });
     });
   });
 });

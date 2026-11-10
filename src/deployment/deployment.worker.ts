@@ -48,6 +48,10 @@ export class DeploymentWorker extends WorkerHost {
     const startedAt = new Date().toISOString();
     let accumulatedLogs = '';
 
+    const abortSignal = data.deploymentId
+      ? this.dockerPipeline?.registerDeploymentAbort?.(data.deploymentId)
+      : undefined;
+
     const emitLog = (chunk: string, stream: 'stdout' | 'stderr' = 'stdout') => {
       if (data.deploymentId && this.logsGateway) {
         this.logsGateway.emitLog(data.deploymentId, chunk, stream);
@@ -84,6 +88,7 @@ export class DeploymentWorker extends WorkerHost {
     if (data.projectId && this.projectRepository) {
       project = await this.projectRepository.findOne({
         where: { id: data.projectId },
+        relations: ['customDomains'],
       });
       if (project) {
         port = project.port || 3000;
@@ -108,8 +113,21 @@ export class DeploymentWorker extends WorkerHost {
     let deploymentUrl: string | undefined;
 
     try {
-      // Notificar estado BUILDING en base de datos
-      if (data.deploymentId && this.deploymentRepository) {
+      // Verificar si ya fue cancelado antes de iniciar
+      if (data.deploymentId && this.deploymentRepository?.findOne) {
+        const initialDep = await this.deploymentRepository.findOne({
+          where: { id: data.deploymentId },
+        });
+        if (initialDep?.status === DeploymentStatus.CANCELLED) {
+          throw new Error('Deployment was cancelled by user');
+        }
+
+        // Notificar estado BUILDING en base de datos
+        await this.deploymentRepository.update(data.deploymentId, {
+          status: DeploymentStatus.BUILDING,
+          startedAt: new Date(startedAt),
+        });
+      } else if (data.deploymentId && this.deploymentRepository) {
         await this.deploymentRepository.update(data.deploymentId, {
           status: DeploymentStatus.BUILDING,
           startedAt: new Date(startedAt),
@@ -131,6 +149,7 @@ export class DeploymentWorker extends WorkerHost {
         data.commitSha,
         workspaceDir,
         emitLog,
+        abortSignal,
       );
       accumulatedLogs += `=== STAGE 1: CLONE ===\n${cloneResult.logs}\n\n`;
       await job.updateProgress(25);
@@ -139,6 +158,16 @@ export class DeploymentWorker extends WorkerHost {
         status: 'success',
         durationMs: cloneResult.durationMs,
       });
+
+      // Verificar si fue cancelado durante la clonación
+      if (data.deploymentId && this.deploymentRepository?.findOne) {
+        const depCheck = await this.deploymentRepository.findOne({
+          where: { id: data.deploymentId },
+        });
+        if (depCheck?.status === DeploymentStatus.CANCELLED) {
+          throw new Error('Deployment was cancelled by user');
+        }
+      }
 
       // Stage 2: Compilación de imagen Docker
       this.logger.log(
@@ -151,6 +180,7 @@ export class DeploymentWorker extends WorkerHost {
         imageTag,
         workspaceDir,
         emitLog,
+        abortSignal,
       );
       accumulatedLogs += `=== STAGE 2: BUILD ===\n${buildResult.logs}\n\n`;
       await job.updateProgress(50);
@@ -159,6 +189,16 @@ export class DeploymentWorker extends WorkerHost {
         status: 'success',
         durationMs: buildResult.durationMs,
       });
+
+      // Verificar si fue cancelado durante el build
+      if (data.deploymentId && this.deploymentRepository?.findOne) {
+        const depCheck = await this.deploymentRepository.findOne({
+          where: { id: data.deploymentId },
+        });
+        if (depCheck?.status === DeploymentStatus.CANCELLED) {
+          throw new Error('Deployment was cancelled by user');
+        }
+      }
 
       // Notificar estado DEPLOYING en base de datos
       if (data.deploymentId && this.deploymentRepository) {
@@ -180,6 +220,11 @@ export class DeploymentWorker extends WorkerHost {
         ? this.dockerPipeline.generateSubdomain(project.name)
         : this.dockerPipeline.generateSubdomain(data.repositoryName);
 
+      const verifiedDomains =
+        project?.customDomains
+          ?.filter((d: any) => d.status === 'VERIFIED')
+          ?.map((d: any) => d.domain) || [];
+
       const runResult = await this.dockerPipeline.runContainer(
         imageTag,
         containerName,
@@ -189,7 +234,9 @@ export class DeploymentWorker extends WorkerHost {
           subdomain,
           baseDomain: process.env.BASE_DOMAIN || 'localhost',
           network: process.env.DOCKER_NETWORK || 'titan-network',
+          customDomains: verifiedDomains,
           onLog: emitLog,
+          signal: abortSignal,
         },
       );
       containerId = runResult.containerId;
@@ -217,11 +264,39 @@ export class DeploymentWorker extends WorkerHost {
         `🩺 [4/4] Verifying health status of container ${containerId}...\n`,
       );
 
-      const healthResult = await this.dockerPipeline.checkHealth(
-        containerId,
-        emitLog,
-      );
+      const healthResult = abortSignal
+        ? await this.dockerPipeline.checkHealth(
+            containerId,
+            emitLog,
+            abortSignal,
+          )
+        : await this.dockerPipeline.checkHealth(containerId, emitLog);
       accumulatedLogs += `=== STAGE 4: HEALTHCHECK ===\n${healthResult.logs}\n\n`;
+
+      if (project?.healthcheckPath) {
+        const rawPath = project.healthcheckPath.trim();
+        const normalizedPath = rawPath.startsWith('/')
+          ? rawPath
+          : `/${rawPath}`;
+        const targetUrl = deploymentUrl
+          ? `${deploymentUrl}${normalizedPath}`
+          : `http://localhost:${port}${normalizedPath}`;
+
+        emitLog(
+          `🌐 Executing HTTP healthcheck on ${targetUrl} (expected: ${project.healthcheckExpectedStatus || 200}, retries: ${project.healthcheckRetries || 3}, timeout: ${project.healthcheckTimeout || 5}s)...\n`,
+        );
+
+        const httpHealthResult = await this.dockerPipeline.checkHttpHealth({
+          url: targetUrl,
+          expectedStatus: project.healthcheckExpectedStatus || 200,
+          timeoutSeconds: project.healthcheckTimeout || 5,
+          retries: project.healthcheckRetries || 3,
+          onLog: emitLog,
+          signal: abortSignal,
+        });
+
+        accumulatedLogs += `=== HTTP HEALTHCHECK ===\n${httpHealthResult.logs}\n\n`;
+      }
       await job.updateProgress(100);
       stages.push({
         name: 'healthcheck',
@@ -267,20 +342,101 @@ export class DeploymentWorker extends WorkerHost {
       const errorMessage = (error as Error).message;
       accumulatedLogs += `\n❌ ERROR: ${errorMessage}\n`;
 
-      emitStatus(DeploymentStatus.FAILED, undefined, 'failed');
-      emitLog(`\n❌ ERROR: ${errorMessage}\n`, 'stderr');
+      const isCancelled =
+        errorMessage.includes('cancelled') ||
+        (error as Error).name === 'AbortError';
 
+      let finalStatus = DeploymentStatus.FAILED;
       if (data.deploymentId && this.deploymentRepository) {
+        if (this.deploymentRepository.findOne) {
+          const currentDep = await this.deploymentRepository.findOne({
+            where: { id: data.deploymentId },
+          });
+          if (
+            currentDep?.status === DeploymentStatus.CANCELLED ||
+            isCancelled
+          ) {
+            finalStatus = DeploymentStatus.CANCELLED;
+          }
+        } else if (isCancelled) {
+          finalStatus = DeploymentStatus.CANCELLED;
+        }
+
+        // Rollback automático: si el fallo no fue una cancelación y existe un despliegue previo DEPLOYED,
+        // restaurar el contenedor anterior para evitar caída del servicio
+        if (
+          !isCancelled &&
+          data.projectId &&
+          this.deploymentRepository.findOne &&
+          this.dockerPipeline
+        ) {
+          try {
+            const previousSuccess = await this.deploymentRepository.findOne({
+              where: {
+                projectId: data.projectId,
+                status: DeploymentStatus.DEPLOYED,
+              },
+              order: { finishedAt: 'DESC' },
+            });
+
+            if (previousSuccess && previousSuccess.id !== data.deploymentId) {
+              this.logger.warn(
+                `[Auto-Rollback] Restaurando contenedor del despliegue previo exitoso #${previousSuccess.id}...`,
+              );
+              emitLog(
+                `\n🔄 [Auto-Rollback] Deployment failed. Automatically restoring previous healthy deployment #${previousSuccess.id}...\n`,
+                'stdout',
+              );
+
+              const prevImage = this.dockerPipeline.generateImageTag(
+                data.repositoryName,
+                previousSuccess.commitSha || 'latest',
+              );
+              const subdomain = project?.name
+                ? this.dockerPipeline.generateSubdomain(project.name)
+                : this.dockerPipeline.generateSubdomain(data.repositoryName);
+
+              await this.dockerPipeline.runContainer(
+                prevImage,
+                containerName,
+                port,
+                envVariables,
+                {
+                  subdomain,
+                  baseDomain: process.env.BASE_DOMAIN || 'localhost',
+                  network: process.env.DOCKER_NETWORK || 'titan-network',
+                  onLog: emitLog,
+                },
+              );
+
+              accumulatedLogs += `\n=== AUTOMATIC ROLLBACK ===\nSuccessfully restored previous deployment #${previousSuccess.id}\n`;
+              emitLog(
+                `✅ [Auto-Rollback] Restored deployment #${previousSuccess.id}\n`,
+              );
+            }
+          } catch (rollbackError) {
+            this.logger.error(
+              `[Auto-Rollback] Error al intentar restaurar despliegue previo: ${(rollbackError as Error).message}`,
+            );
+          }
+        }
+
         await this.deploymentRepository.update(data.deploymentId, {
-          status: DeploymentStatus.FAILED,
+          status: finalStatus,
           logs: accumulatedLogs,
           stages: stages as any,
           finishedAt: new Date(finishedAt),
         });
       }
 
+      emitStatus(finalStatus, undefined, isCancelled ? 'cancelled' : 'failed');
+      emitLog(`\n❌ ERROR: ${errorMessage}\n`, 'stderr');
+
       throw error;
     } finally {
+      if (data.deploymentId) {
+        this.dockerPipeline?.unregisterDeploymentAbort?.(data.deploymentId);
+      }
       // Limpieza de workspace temporal
       await this.dockerPipeline.cleanup(workspaceDir);
     }
@@ -294,7 +450,7 @@ export class DeploymentWorker extends WorkerHost {
   @OnWorkerEvent('failed')
   onFailed(job: Job, error: Error) {
     this.logger.error(
-      `[Worker] Tarea #${job?.id} falló con error: ${error.message}`,
+      `[Worker] Tarea #${job.id} falló con error: ${error.message}`,
     );
   }
 }

@@ -2,18 +2,34 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Project } from './entities/project.entity.js';
+import { Deployment } from '../deployments/entities/deployment.entity.js';
+import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js';
+import { DomainStatus } from '../domains/enums/domain-status.enum.js';
 import { CreateProjectDto } from './dto/create-project.dto.js';
 import { UpdateProjectDto } from './dto/update-project.dto.js';
+import { DockerPipelineService } from '../deployment/docker-pipeline.service.js';
+
+export interface ContainerActionResponse {
+  projectId: string;
+  containerName: string;
+  action: 'stop' | 'start' | 'restart';
+  status: 'stopped' | 'running';
+  message: string;
+}
 
 @Injectable()
 export class ProjectsService {
   constructor(
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
+    @InjectRepository(Deployment)
+    private readonly deploymentRepository: Repository<Deployment>,
+    private readonly dockerPipeline: DockerPipelineService,
   ) {}
 
   async create(
@@ -54,7 +70,7 @@ export class ProjectsService {
   async findOne(userId: string, id: string): Promise<Project> {
     const project = await this.projectRepository.findOne({
       where: { id, userId },
-      relations: ['deployments'],
+      relations: ['deployments', 'customDomains'],
     });
 
     if (!project) {
@@ -105,8 +121,62 @@ export class ProjectsService {
       project.port = updateProjectDto.port;
     }
 
-    if (updateProjectDto.envVariables !== undefined) {
-      project.envVariables = updateProjectDto.envVariables;
+    const envVariablesUpdated = updateProjectDto.envVariables !== undefined;
+    if (envVariablesUpdated) {
+      project.envVariables = updateProjectDto.envVariables!;
+    }
+
+    // Si se modificaron variables de entorno, recrear el contenedor en caliente si está desplegado
+    if (envVariablesUpdated) {
+      const containerName = this.dockerPipeline.generateContainerName(
+        project.repositoryName,
+      );
+      const containerStatus =
+        await this.dockerPipeline.getContainerStatus(containerName);
+
+      const latestDeployment = await this.deploymentRepository.findOne({
+        where: {
+          projectId: project.id,
+          status: DeploymentStatus.DEPLOYED,
+        },
+        order: { finishedAt: 'DESC' },
+      });
+
+      if (latestDeployment && containerStatus !== 'not_found') {
+        const imageTag = this.dockerPipeline.generateImageTag(
+          project.repositoryName,
+          latestDeployment.commitSha || 'latest',
+        );
+        const subdomain = this.dockerPipeline.generateSubdomain(project.name);
+        const verifiedDomains =
+          project.customDomains
+            ?.filter((d) => d.status === DomainStatus.VERIFIED)
+            .map((d) => d.domain) || [];
+        const network = process.env.TRAEFIK_NETWORK || 'titan-network';
+
+        try {
+          const runResult = await this.dockerPipeline.runContainer(
+            imageTag,
+            containerName,
+            project.port,
+            project.envVariables,
+            {
+              subdomain,
+              network,
+              customDomains: verifiedDomains,
+            },
+          );
+
+          await this.dockerPipeline.checkHealth(runResult.containerId);
+
+          latestDeployment.containerId = runResult.containerId;
+          await this.deploymentRepository.save(latestDeployment);
+        } catch (error) {
+          throw new BadRequestException(
+            `Error al recrear el contenedor en caliente: ${(error as Error).message}`,
+          );
+        }
+      }
     }
 
     return this.projectRepository.save(project);
@@ -117,6 +187,107 @@ export class ProjectsService {
     await this.projectRepository.remove(project);
     return {
       message: `Proyecto "${project.name}" eliminado exitosamente`,
+    };
+  }
+
+  async stopContainer(
+    userId: string,
+    id: string,
+  ): Promise<ContainerActionResponse> {
+    const project = await this.findOne(userId, id);
+    const containerName = this.dockerPipeline.generateContainerName(
+      project.repositoryName,
+    );
+    const status = await this.dockerPipeline.getContainerStatus(containerName);
+
+    if (status === 'not_found') {
+      throw new BadRequestException(
+        `No se encontró ningún contenedor desplegado para el proyecto "${project.name}". Debe realizar al menos un despliegue primero.`,
+      );
+    }
+
+    if (status === 'exited' || status === 'stopped') {
+      return {
+        projectId: project.id,
+        containerName,
+        action: 'stop',
+        status: 'stopped',
+        message: 'El contenedor ya se encontraba detenido.',
+      };
+    }
+
+    await this.dockerPipeline.stopContainer(containerName);
+
+    return {
+      projectId: project.id,
+      containerName,
+      action: 'stop',
+      status: 'stopped',
+      message: 'Contenedor detenido exitosamente.',
+    };
+  }
+
+  async startContainer(
+    userId: string,
+    id: string,
+  ): Promise<ContainerActionResponse> {
+    const project = await this.findOne(userId, id);
+    const containerName = this.dockerPipeline.generateContainerName(
+      project.repositoryName,
+    );
+    const status = await this.dockerPipeline.getContainerStatus(containerName);
+
+    if (status === 'not_found') {
+      throw new BadRequestException(
+        `No se encontró ningún contenedor desplegado para el proyecto "${project.name}". Debe realizar al menos un despliegue primero.`,
+      );
+    }
+
+    if (status === 'running') {
+      return {
+        projectId: project.id,
+        containerName,
+        action: 'start',
+        status: 'running',
+        message: 'El contenedor ya se encuentra en ejecución.',
+      };
+    }
+
+    await this.dockerPipeline.startContainer(containerName);
+
+    return {
+      projectId: project.id,
+      containerName,
+      action: 'start',
+      status: 'running',
+      message: 'Contenedor iniciado exitosamente.',
+    };
+  }
+
+  async restartContainer(
+    userId: string,
+    id: string,
+  ): Promise<ContainerActionResponse> {
+    const project = await this.findOne(userId, id);
+    const containerName = this.dockerPipeline.generateContainerName(
+      project.repositoryName,
+    );
+    const status = await this.dockerPipeline.getContainerStatus(containerName);
+
+    if (status === 'not_found') {
+      throw new BadRequestException(
+        `No se encontró ningún contenedor desplegado para el proyecto "${project.name}". Debe realizar al menos un despliegue primero.`,
+      );
+    }
+
+    await this.dockerPipeline.restartContainer(containerName);
+
+    return {
+      projectId: project.id,
+      containerName,
+      action: 'restart',
+      status: 'running',
+      message: 'Contenedor reiniciado exitosamente.',
     };
   }
 }

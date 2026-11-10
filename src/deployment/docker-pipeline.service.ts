@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { spawn } from 'node:child_process';
-import { rm, mkdir } from 'node:fs/promises';
+import { access, rm, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -20,6 +20,12 @@ export interface ContainerRunResult extends PipelineStepResult {
   url?: string;
 }
 
+export interface RuntimeDetectionResult {
+  hasDockerfile: boolean;
+  language?: string;
+  buildTool: 'docker' | 'nixpacks';
+}
+
 export type LogCallback = (chunk: string, stream: 'stdout' | 'stderr') => void;
 
 export interface RunContainerOptions {
@@ -27,12 +33,45 @@ export interface RunContainerOptions {
   baseDomain?: string;
   network?: string;
   labels?: Record<string, string>;
+  customDomains?: string[];
   onLog?: LogCallback;
+  signal?: AbortSignal;
+}
+
+export interface HttpHealthcheckOptions {
+  url: string;
+  expectedStatus?: number;
+  timeoutSeconds?: number;
+  retries?: number;
+  retryIntervalMs?: number;
+  onLog?: LogCallback;
+  signal?: AbortSignal;
 }
 
 @Injectable()
 export class DockerPipelineService {
   private readonly logger = new Logger(DockerPipelineService.name);
+  private readonly activeDeployments = new Map<string, AbortController>();
+
+  registerDeploymentAbort(deploymentId: string): AbortSignal {
+    const controller = new AbortController();
+    this.activeDeployments.set(deploymentId, controller);
+    return controller.signal;
+  }
+
+  unregisterDeploymentAbort(deploymentId: string): void {
+    this.activeDeployments.delete(deploymentId);
+  }
+
+  abortDeployment(deploymentId: string): boolean {
+    const controller = this.activeDeployments.get(deploymentId);
+    if (controller) {
+      controller.abort();
+      this.activeDeployments.delete(deploymentId);
+      return true;
+    }
+    return false;
+  }
 
   getWorkspacePath(repositoryName: string, commitSha: string): string {
     const sanitizedRepo = repositoryName.replace(/[^a-zA-Z0-9]/g, '_');
@@ -68,6 +107,7 @@ export class DockerPipelineService {
     args: string[],
     cwd?: string,
     onLog?: LogCallback,
+    signal?: AbortSignal,
   ): Promise<CommandExecutionResult> {
     return new Promise((resolve, reject) => {
       this.logger.debug(`Ejecutando: ${command} ${args.join(' ')}`);
@@ -75,6 +115,7 @@ export class DockerPipelineService {
       const child = spawn(command, args, {
         cwd,
         shell: true,
+        signal,
       });
 
       let stdout = '';
@@ -114,6 +155,7 @@ export class DockerPipelineService {
     commitSha: string,
     targetDir: string,
     onLog?: LogCallback,
+    signal?: AbortSignal,
   ): Promise<PipelineStepResult> {
     const start = Date.now();
     await rm(targetDir, { recursive: true, force: true });
@@ -129,9 +171,11 @@ export class DockerPipelineService {
       targetDir,
     ];
 
-    const cloneResult = onLog
-      ? await this.executeCommand('git', cloneArgs, undefined, onLog)
-      : await this.executeCommand('git', cloneArgs);
+    const cloneResult = signal
+      ? await this.executeCommand('git', cloneArgs, undefined, onLog, signal)
+      : onLog
+        ? await this.executeCommand('git', cloneArgs, undefined, onLog)
+        : await this.executeCommand('git', cloneArgs);
 
     let logs =
       cloneResult.stdout +
@@ -140,18 +184,26 @@ export class DockerPipelineService {
     // Si se especifica un commit SHA distinto al HEAD de la rama, intentar checkout
     if (commitSha) {
       try {
-        const checkoutResult = onLog
+        const checkoutResult = signal
           ? await this.executeCommand(
               'git',
               ['checkout', commitSha],
               targetDir,
               onLog,
+              signal,
             )
-          : await this.executeCommand(
-              'git',
-              ['checkout', commitSha],
-              targetDir,
-            );
+          : onLog
+            ? await this.executeCommand(
+                'git',
+                ['checkout', commitSha],
+                targetDir,
+                onLog,
+              )
+            : await this.executeCommand(
+                'git',
+                ['checkout', commitSha],
+                targetDir,
+              );
         logs += `\n${checkoutResult.stdout}${checkoutResult.stderr ? `\n${checkoutResult.stderr}` : ''}`;
       } catch {
         // En clones superficiales depth=1 el commit específico ya es el head de la rama
@@ -164,16 +216,86 @@ export class DockerPipelineService {
     };
   }
 
-  async buildImage(
+  async hasDockerfile(contextDir: string): Promise<boolean> {
+    const candidates = ['Dockerfile', 'dockerfile'];
+    for (const file of candidates) {
+      try {
+        await access(join(contextDir, file));
+        return true;
+      } catch (error) {
+        void error;
+      }
+    }
+    return false;
+  }
+
+  async detectRuntime(contextDir: string): Promise<RuntimeDetectionResult> {
+    if (await this.hasDockerfile(contextDir)) {
+      return {
+        hasDockerfile: true,
+        buildTool: 'docker',
+      };
+    }
+
+    const checks: Array<{ language: string; files: string[] }> = [
+      { language: 'Node.js', files: ['package.json'] },
+      {
+        language: 'Python',
+        files: ['requirements.txt', 'pyproject.toml', 'Pipfile', 'setup.py'],
+      },
+      { language: 'Go', files: ['go.mod', 'main.go'] },
+      { language: 'Rust', files: ['Cargo.toml'] },
+      { language: 'PHP', files: ['composer.json', 'index.php'] },
+      {
+        language: 'Java',
+        files: ['pom.xml', 'build.gradle', 'build.gradle.kts'],
+      },
+      { language: 'Ruby', files: ['Gemfile'] },
+      { language: 'Deno', files: ['deno.json', 'deno.jsonc'] },
+      { language: 'Elixir', files: ['mix.exs'] },
+    ];
+
+    for (const check of checks) {
+      for (const file of check.files) {
+        try {
+          await access(join(contextDir, file));
+          return {
+            hasDockerfile: false,
+            language: check.language,
+            buildTool: 'nixpacks',
+          };
+        } catch (error) {
+          void error;
+        }
+      }
+    }
+
+    return {
+      hasDockerfile: false,
+      language: 'Unknown',
+      buildTool: 'nixpacks',
+    };
+  }
+
+  async buildWithDocker(
     imageTag: string,
     contextDir: string,
     onLog?: LogCallback,
+    signal?: AbortSignal,
   ): Promise<PipelineStepResult> {
     const start = Date.now();
     const buildArgs = ['build', '-t', imageTag, '.'];
-    const result = onLog
-      ? await this.executeCommand('docker', buildArgs, contextDir, onLog)
-      : await this.executeCommand('docker', buildArgs, contextDir);
+    const result = signal
+      ? await this.executeCommand(
+          'docker',
+          buildArgs,
+          contextDir,
+          onLog,
+          signal,
+        )
+      : onLog
+        ? await this.executeCommand('docker', buildArgs, contextDir, onLog)
+        : await this.executeCommand('docker', buildArgs, contextDir);
 
     const logs = (
       result.stdout + (result.stderr ? `\n${result.stderr}` : '')
@@ -183,6 +305,51 @@ export class DockerPipelineService {
       logs,
       durationMs: Date.now() - start,
     };
+  }
+
+  async buildWithNixpacks(
+    imageTag: string,
+    contextDir: string,
+    onLog?: LogCallback,
+  ): Promise<PipelineStepResult> {
+    const start = Date.now();
+    const nixpacksArgs = ['build', '.', '--name', imageTag];
+    const result = onLog
+      ? await this.executeCommand('nixpacks', nixpacksArgs, contextDir, onLog)
+      : await this.executeCommand('nixpacks', nixpacksArgs, contextDir);
+
+    const logs = (
+      result.stdout + (result.stderr ? `\n${result.stderr}` : '')
+    ).trim();
+
+    return {
+      logs,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  async buildImage(
+    imageTag: string,
+    contextDir: string,
+    onLog?: LogCallback,
+  ): Promise<PipelineStepResult> {
+    const runtime = await this.detectRuntime(contextDir);
+
+    if (runtime.hasDockerfile) {
+      onLog?.(
+        'Dockerfile detected. Using Docker build pipeline...\n',
+        'stdout',
+      );
+      return this.buildWithDocker(imageTag, contextDir, onLog);
+    }
+
+    const langMsg =
+      runtime.language && runtime.language !== 'Unknown'
+        ? `No Dockerfile found. Auto-detected ${runtime.language} runtime. Using Nixpacks build pipeline...\n`
+        : 'No Dockerfile found. Using Nixpacks build pipeline...\n';
+    onLog?.(langMsg, 'stdout');
+
+    return this.buildWithNixpacks(imageTag, contextDir, onLog);
   }
 
   async runContainer(
@@ -214,6 +381,7 @@ export class DockerPipelineService {
     const onLog: LogCallback | undefined = isCallback
       ? optionsOrOnLog
       : (options?.onLog ?? onLogCallback);
+    const signal: AbortSignal | undefined = options?.signal;
 
     const labelArgs: string[] = [];
     let url: string | undefined;
@@ -226,9 +394,17 @@ export class DockerPipelineService {
       const routerName = containerName.replace(/[^a-zA-Z0-9_-]/g, '-');
       url = `http://${subdomain}.${baseDomain}`;
 
+      const hostRules = [`Host(\`${subdomain}.${baseDomain}\`)`];
+      if (options.customDomains?.length) {
+        for (const customDomain of options.customDomains) {
+          hostRules.push(`Host(\`${customDomain}\`)`);
+        }
+      }
+      const hostRule = hostRules.join(' || ');
+
       const traefikLabels: Record<string, string> = {
         'traefik.enable': 'true',
-        [`traefik.http.routers.${routerName}.rule`]: `Host(\`${subdomain}.${baseDomain}\`)`,
+        [`traefik.http.routers.${routerName}.rule`]: hostRule,
         [`traefik.http.routers.${routerName}.entrypoints`]: 'web',
         [`traefik.http.services.${routerName}.loadbalancer.server.port`]:
           String(port),
@@ -260,9 +436,11 @@ export class DockerPipelineService {
       imageTag,
     ];
 
-    const result = onLog
-      ? await this.executeCommand('docker', args, undefined, onLog)
-      : await this.executeCommand('docker', args);
+    const result = signal
+      ? await this.executeCommand('docker', args, undefined, onLog, signal)
+      : onLog
+        ? await this.executeCommand('docker', args, undefined, onLog)
+        : await this.executeCommand('docker', args);
     const containerId = result.stdout.trim().split('\n')[0];
 
     const logs = url
@@ -280,6 +458,7 @@ export class DockerPipelineService {
   async checkHealth(
     containerId: string,
     onLog?: LogCallback,
+    signal?: AbortSignal,
   ): Promise<PipelineStepResult> {
     const start = Date.now();
     const inspectArgs = [
@@ -288,9 +467,17 @@ export class DockerPipelineService {
       '{{.State.Status}}',
       containerId,
     ];
-    const result = onLog
-      ? await this.executeCommand('docker', inspectArgs, undefined, onLog)
-      : await this.executeCommand('docker', inspectArgs);
+    const result = signal
+      ? await this.executeCommand(
+          'docker',
+          inspectArgs,
+          undefined,
+          onLog,
+          signal,
+        )
+      : onLog
+        ? await this.executeCommand('docker', inspectArgs, undefined, onLog)
+        : await this.executeCommand('docker', inspectArgs);
 
     const status = result.stdout.trim();
     if (status !== 'running') {
@@ -301,6 +488,131 @@ export class DockerPipelineService {
       logs: `Container health verified: ${status}`,
       durationMs: Date.now() - start,
     };
+  }
+
+  async checkHttpHealth(
+    options: HttpHealthcheckOptions,
+  ): Promise<PipelineStepResult> {
+    const start = Date.now();
+    const expectedStatus = options.expectedStatus ?? 200;
+    const timeoutMs = (options.timeoutSeconds ?? 5) * 1000;
+    const maxRetries = options.retries ?? 3;
+    const intervalMs = options.retryIntervalMs ?? 1000;
+    const onLog = options.onLog;
+
+    let attempt = 0;
+    let lastError: Error | null = null;
+    let logs = '';
+
+    while (attempt < maxRetries) {
+      if (options.signal?.aborted) {
+        throw new Error('Healthcheck operation was cancelled');
+      }
+
+      attempt++;
+      const attemptLog = `Attempt ${attempt}/${maxRetries}: Checking ${options.url}...\n`;
+      logs += attemptLog;
+      onLog?.(attemptLog, 'stdout');
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        const onAbort = () => controller.abort();
+        options.signal?.addEventListener('abort', onAbort, { once: true });
+
+        const response = await fetch(options.url, {
+          method: 'GET',
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+        options.signal?.removeEventListener('abort', onAbort);
+
+        if (response.status === expectedStatus) {
+          const successLog = `HTTP Healthcheck passed (${response.status} === ${expectedStatus}) at ${options.url}\n`;
+          logs += successLog;
+          onLog?.(successLog, 'stdout');
+          return {
+            logs: logs.trim(),
+            durationMs: Date.now() - start,
+          };
+        } else {
+          lastError = new Error(
+            `Unexpected HTTP status code: ${response.status} (expected: ${expectedStatus})`,
+          );
+          const warnLog = `Received status ${response.status}, expected ${expectedStatus}\n`;
+          logs += warnLog;
+          onLog?.(warnLog, 'stderr');
+        }
+      } catch (err) {
+        lastError = err as Error;
+        const errLog = `Connection failed or timed out: ${(err as Error).message}\n`;
+        logs += errLog;
+        onLog?.(errLog, 'stderr');
+      }
+
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    }
+
+    const failureMessage =
+      `HTTP Healthcheck failed for ${options.url} after ${maxRetries} attempts. ` +
+      (lastError ? lastError.message : '');
+    throw new Error(failureMessage);
+  }
+
+  async stopContainer(containerIdOrName: string): Promise<PipelineStepResult> {
+    const start = Date.now();
+    const result = await this.executeCommand('docker', [
+      'stop',
+      containerIdOrName,
+    ]);
+    return {
+      logs: result.stdout.trim() || `Container ${containerIdOrName} stopped`,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  async startContainer(containerIdOrName: string): Promise<PipelineStepResult> {
+    const start = Date.now();
+    const result = await this.executeCommand('docker', [
+      'start',
+      containerIdOrName,
+    ]);
+    return {
+      logs: result.stdout.trim() || `Container ${containerIdOrName} started`,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  async restartContainer(
+    containerIdOrName: string,
+  ): Promise<PipelineStepResult> {
+    const start = Date.now();
+    const result = await this.executeCommand('docker', [
+      'restart',
+      containerIdOrName,
+    ]);
+    return {
+      logs: result.stdout.trim() || `Container ${containerIdOrName} restarted`,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  async getContainerStatus(containerIdOrName: string): Promise<string> {
+    try {
+      const result = await this.executeCommand('docker', [
+        'inspect',
+        '--format',
+        '{{.State.Status}}',
+        containerIdOrName,
+      ]);
+      return result.stdout.trim();
+    } catch {
+      return 'not_found';
+    }
   }
 
   async cleanup(targetDir: string): Promise<void> {

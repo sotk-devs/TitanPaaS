@@ -109,7 +109,11 @@ export class ProjectsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Actualizar configuración de un proyecto' })
+  @ApiOperation({
+    summary: 'Actualizar configuración de un proyecto',
+    description:
+      'Actualiza la configuración del proyecto. Si se modifican las variables de entorno y el proyecto está desplegado, el contenedor se recrea en caliente con las nuevas variables sin re-compilar la imagen.',
+  })
   @ApiParam({
     name: 'id',
     type: 'string',
@@ -169,5 +173,107 @@ export class ProjectsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.projectsService.remove(req.user.id, id);
+  }
+
+  @Post(':id/stop')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Detener el contenedor del proyecto sin destruirlo',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    format: 'uuid',
+    description: 'Identificador único (UUID) del proyecto',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Contenedor detenido exitosamente.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'No existe un contenedor desplegado para este proyecto.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado.',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Proyecto no encontrado.',
+  })
+  stop(
+    @Request() req: RequestWithUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.projectsService.stopContainer(req.user.id, id);
+  }
+
+  @Post(':id/start')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Iniciar un contenedor previamente detenido del proyecto',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    format: 'uuid',
+    description: 'Identificador único (UUID) del proyecto',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Contenedor iniciado exitosamente.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'No existe un contenedor desplegado para este proyecto.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado.',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Proyecto no encontrado.',
+  })
+  start(
+    @Request() req: RequestWithUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.projectsService.startContainer(req.user.id, id);
+  }
+
+  @Post(':id/restart')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reiniciar el contenedor activo del proyecto',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    format: 'uuid',
+    description: 'Identificador único (UUID) del proyecto',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Contenedor reiniciado exitosamente.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'No existe un contenedor desplegado para este proyecto.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado.',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Proyecto no encontrado.',
+  })
+  restart(
+    @Request() req: RequestWithUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.projectsService.restartContainer(req.user.id, id);
   }
 }

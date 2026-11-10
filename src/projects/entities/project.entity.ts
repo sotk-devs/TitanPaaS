@@ -15,6 +15,7 @@ import type { Deployment } from '../../deployments/entities/deployment.entity.js
 import type { NotificationWebhook } from '../../notifications/entities/notification-webhook.entity.js';
 import type { CustomDomain } from '../../domains/entities/custom-domain.entity.js';
 import type { ProjectVolume } from '../../volumes/entities/project-volume.entity.js';
+import { EncryptionTransformer } from '../../common/encryption/encryption.transformer.js';
 
 @Entity('projects')
 export class Project {
@@ -37,7 +38,12 @@ export class Project {
   @Column({ type: 'int', default: 3000 })
   port: number;
 
-  @Column({ type: 'jsonb', default: {}, name: 'env_variables' })
+  @Column({
+    type: 'jsonb',
+    default: {},
+    name: 'env_variables',
+    transformer: new EncryptionTransformer(),
+  })
   envVariables: Record<string, string>;
 
   @Column({ type: 'float', nullable: true, name: 'cpu_limit' })

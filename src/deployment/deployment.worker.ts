@@ -323,7 +323,7 @@ export class DeploymentWorker extends WorkerHost {
           : `http://localhost:${port}${normalizedPath}`;
 
         emitLog(
-          `🌐 Executing HTTP healthcheck on ${targetUrl} (expected: ${project.healthcheckExpectedStatus || 200}, retries: ${project.healthcheckRetries || 3}, timeout: ${project.healthcheckTimeout || 5}s)...\n`,
+          `Executing HTTP healthcheck on ${targetUrl} (expected: ${project.healthcheckExpectedStatus || 200}, retries: ${project.healthcheckRetries || 3}, timeout: ${project.healthcheckTimeout || 5}s)...\n`,
         );
 
         const httpHealthResult = await this.dockerPipeline.checkHttpHealth({

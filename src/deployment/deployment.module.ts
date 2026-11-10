@@ -7,10 +7,11 @@ import { DockerPipelineService } from './docker-pipeline.service.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { Deployment } from '../deployments/entities/deployment.entity.js';
 import { LogsModule } from '../logs/logs.module.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 
 const databaseImports =
   process.env.NODE_ENV !== 'test'
-    ? [TypeOrmModule.forFeature([Project, Deployment])]
+    ? [TypeOrmModule.forFeature([Project, Deployment]), NotificationsModule]
     : [];
 
 @Module({

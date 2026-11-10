@@ -2,12 +2,13 @@ import { DataSource, DataSourceOptions } from 'typeorm';
 import { User } from '../users/entities/user.entity.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { Deployment } from '../deployments/entities/deployment.entity.js';
+import { NotificationWebhook } from '../notifications/entities/notification-webhook.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
   ? {
       type: 'postgres',
       url: process.env.DATABASE_URL,
-      entities: [User, Project, Deployment],
+      entities: [User, Project, Deployment, NotificationWebhook],
       migrations: ['src/database/migrations/*.ts'],
       synchronize: false,
     }
@@ -18,7 +19,7 @@ export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
       username: process.env.POSTGRES_USER || 'postgres',
       password: process.env.POSTGRES_PASSWORD || 'postgres',
       database: process.env.POSTGRES_DB || 'titan_paas',
-      entities: [User, Project, Deployment],
+      entities: [User, Project, Deployment, NotificationWebhook],
       migrations: ['src/database/migrations/*.ts'],
       synchronize: false,
     };

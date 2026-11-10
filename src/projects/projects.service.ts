@@ -7,6 +7,9 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Project } from './entities/project.entity.js';
+import { Deployment } from '../deployments/entities/deployment.entity.js';
+import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js';
+import { DomainStatus } from '../domains/enums/domain-status.enum.js';
 import { CreateProjectDto } from './dto/create-project.dto.js';
 import { UpdateProjectDto } from './dto/update-project.dto.js';
 import { DockerPipelineService } from '../deployment/docker-pipeline.service.js';
@@ -24,6 +27,8 @@ export class ProjectsService {
   constructor(
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
+    @InjectRepository(Deployment)
+    private readonly deploymentRepository: Repository<Deployment>,
     private readonly dockerPipeline: DockerPipelineService,
   ) {}
 
@@ -65,7 +70,7 @@ export class ProjectsService {
   async findOne(userId: string, id: string): Promise<Project> {
     const project = await this.projectRepository.findOne({
       where: { id, userId },
-      relations: ['deployments'],
+      relations: ['deployments', 'customDomains'],
     });
 
     if (!project) {
@@ -116,8 +121,62 @@ export class ProjectsService {
       project.port = updateProjectDto.port;
     }
 
-    if (updateProjectDto.envVariables !== undefined) {
-      project.envVariables = updateProjectDto.envVariables;
+    const envVariablesUpdated = updateProjectDto.envVariables !== undefined;
+    if (envVariablesUpdated) {
+      project.envVariables = updateProjectDto.envVariables!;
+    }
+
+    // Si se modificaron variables de entorno, recrear el contenedor en caliente si está desplegado
+    if (envVariablesUpdated) {
+      const containerName = this.dockerPipeline.generateContainerName(
+        project.repositoryName,
+      );
+      const containerStatus =
+        await this.dockerPipeline.getContainerStatus(containerName);
+
+      const latestDeployment = await this.deploymentRepository.findOne({
+        where: {
+          projectId: project.id,
+          status: DeploymentStatus.DEPLOYED,
+        },
+        order: { finishedAt: 'DESC' },
+      });
+
+      if (latestDeployment && containerStatus !== 'not_found') {
+        const imageTag = this.dockerPipeline.generateImageTag(
+          project.repositoryName,
+          latestDeployment.commitSha || 'latest',
+        );
+        const subdomain = this.dockerPipeline.generateSubdomain(project.name);
+        const verifiedDomains =
+          project.customDomains
+            ?.filter((d) => d.status === DomainStatus.VERIFIED)
+            .map((d) => d.domain) || [];
+        const network = process.env.TRAEFIK_NETWORK || 'titan-network';
+
+        try {
+          const runResult = await this.dockerPipeline.runContainer(
+            imageTag,
+            containerName,
+            project.port,
+            project.envVariables,
+            {
+              subdomain,
+              network,
+              customDomains: verifiedDomains,
+            },
+          );
+
+          await this.dockerPipeline.checkHealth(runResult.containerId);
+
+          latestDeployment.containerId = runResult.containerId;
+          await this.deploymentRepository.save(latestDeployment);
+        } catch (error) {
+          throw new BadRequestException(
+            `Error al recrear el contenedor en caliente: ${(error as Error).message}`,
+          );
+        }
+      }
     }
 
     return this.projectRepository.save(project);

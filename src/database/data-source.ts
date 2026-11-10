@@ -1,4 +1,10 @@
 import { DataSource, DataSourceOptions } from 'typeorm';
+
+try {
+  process.loadEnvFile?.();
+} catch {
+  // Ignore if .env is missing
+}
 import { User } from '../users/entities/user.entity.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { Deployment } from '../deployments/entities/deployment.entity.js';

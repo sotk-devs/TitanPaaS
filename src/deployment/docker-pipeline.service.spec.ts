@@ -389,6 +389,94 @@ describe('DockerPipelineService', () => {
       ]);
       expect(result.containerId).toBe('container-id-limits');
     });
+
+    it('should inject volume arguments (-v) when persistent volumes are provided', async () => {
+      jest
+        .spyOn(service, 'executeCommand')
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 })
+        .mockResolvedValueOnce({
+          stdout: 'container-id-volumes\n',
+          stderr: '',
+          exitCode: 0,
+        });
+
+      const result = await service.runContainer(
+        'titan-app:latest',
+        'titan-app-volumes',
+        3000,
+        { PORT: '3000' },
+        {
+          volumes: [
+            {
+              volumeName: 'titan_vol_uploads',
+              mountPath: '/app/uploads',
+              readOnly: false,
+            },
+            {
+              volumeName: 'titan_vol_config',
+              mountPath: '/etc/app',
+              readOnly: true,
+            },
+          ],
+        },
+      );
+
+      expect(service.executeCommand).toHaveBeenCalledWith('docker', [
+        'run',
+        '-d',
+        '--name',
+        'titan-app-volumes',
+        '-p',
+        '3000:3000',
+        '-v',
+        'titan_vol_uploads:/app/uploads:rw',
+        '-v',
+        'titan_vol_config:/etc/app:ro',
+        '-e',
+        'PORT=3000',
+        'titan-app:latest',
+      ]);
+      expect(result.containerId).toBe('container-id-volumes');
+    });
+  });
+
+  describe('volume management methods', () => {
+    it('should call docker volume create with volumeName', async () => {
+      const executeSpy = jest
+        .spyOn(service, 'executeCommand')
+        .mockResolvedValue({
+          stdout: 'titan_vol_test\n',
+          stderr: '',
+          exitCode: 0,
+        });
+
+      await service.createDockerVolume('titan_vol_test');
+
+      expect(executeSpy).toHaveBeenCalledWith('docker', [
+        'volume',
+        'create',
+        'titan_vol_test',
+      ]);
+    });
+
+    it('should call docker volume rm with volumeName', async () => {
+      const executeSpy = jest
+        .spyOn(service, 'executeCommand')
+        .mockResolvedValue({
+          stdout: 'titan_vol_test\n',
+          stderr: '',
+          exitCode: 0,
+        });
+
+      await service.removeDockerVolume('titan_vol_test');
+
+      expect(executeSpy).toHaveBeenCalledWith('docker', [
+        'volume',
+        'rm',
+        '-f',
+        'titan_vol_test',
+      ]);
+    });
   });
 
   describe('checkHealth', () => {

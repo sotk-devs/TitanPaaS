@@ -240,6 +240,15 @@ export class DeploymentWorker extends WorkerHost {
         ? this.dockerPipeline.generateSubdomain(project.name)
         : this.dockerPipeline.generateSubdomain(data.repositoryName);
 
+      const resourceLimits =
+        project?.cpuLimit || project?.memoryLimit || project?.memorySwap
+          ? {
+              cpus: project.cpuLimit ?? undefined,
+              memory: project.memoryLimit ?? undefined,
+              memorySwap: project.memorySwap ?? undefined,
+            }
+          : undefined;
+
       const verifiedDomains =
         project?.customDomains
           ?.filter((d: any) => d.status === 'VERIFIED')
@@ -254,6 +263,7 @@ export class DeploymentWorker extends WorkerHost {
           subdomain,
           baseDomain: process.env.BASE_DOMAIN || 'localhost',
           network: process.env.DOCKER_NETWORK || 'titan-network',
+          resourceLimits,
           customDomains: verifiedDomains,
           onLog: emitLog,
           signal: abortSignal,

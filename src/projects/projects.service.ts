@@ -179,6 +179,18 @@ export class ProjectsService {
       }
     }
 
+    if (updateProjectDto.cpuLimit !== undefined) {
+      project.cpuLimit = updateProjectDto.cpuLimit;
+    }
+
+    if (updateProjectDto.memoryLimit !== undefined) {
+      project.memoryLimit = updateProjectDto.memoryLimit;
+    }
+
+    if (updateProjectDto.memorySwap !== undefined) {
+      project.memorySwap = updateProjectDto.memorySwap;
+    }
+
     return this.projectRepository.save(project);
   }
 

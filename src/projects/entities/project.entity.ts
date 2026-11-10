@@ -39,6 +39,15 @@ export class Project {
   @Column({ type: 'jsonb', default: {}, name: 'env_variables' })
   envVariables: Record<string, string>;
 
+  @Column({ type: 'float', nullable: true, name: 'cpu_limit' })
+  cpuLimit?: number | null;
+
+  @Column({ type: 'varchar', nullable: true, name: 'memory_limit' })
+  memoryLimit?: string | null;
+
+  @Column({ type: 'varchar', nullable: true, name: 'memory_swap' })
+  memorySwap?: string | null;
+
   @Column({
     type: 'varchar',
     nullable: true,

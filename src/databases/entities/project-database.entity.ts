@@ -5,6 +5,8 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  OneToMany,
+  OneToOne,
   JoinColumn,
   Index,
   Unique,
@@ -13,6 +15,8 @@ import {
 import { DatabaseType } from '../enums/database-type.enum.js';
 import { DatabaseStatus } from '../enums/database-status.enum.js';
 import type { Project } from '../../projects/entities/project.entity.js';
+import type { DatabaseBackup } from './database-backup.entity.js';
+import type { BackupSchedule } from './backup-schedule.entity.js';
 
 @Entity('project_databases')
 @Unique(['projectId', 'name'])
@@ -67,6 +71,12 @@ export class ProjectDatabase {
   @ManyToOne('Project', 'databases', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'project_id' })
   project: Relation<Project>;
+
+  @OneToMany('DatabaseBackup', 'database')
+  backups?: Relation<DatabaseBackup>[];
+
+  @OneToOne('BackupSchedule', 'database')
+  backupSchedule?: Relation<BackupSchedule>;
 
   @CreateDateColumn({ type: 'timestamp with time zone', name: 'created_at' })
   createdAt: Date;

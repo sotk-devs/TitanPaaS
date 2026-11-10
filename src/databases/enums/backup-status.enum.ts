@@ -1,0 +1,6 @@
+export enum BackupStatus {
+  PENDING = 'PENDING',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+  RESTORING = 'RESTORING',
+}

@@ -18,6 +18,7 @@ import { DeploymentsModule } from './deployments/deployments.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { TerminalModule } from './terminal/terminal.module.js';
 import { DomainsModule } from './domains/domains.module.js';
+import { DatabasesModule } from './databases/databases.module.js';
 import { getTypeOrmConfig } from './database/database.config.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -46,6 +47,7 @@ const databaseModules =
         NotificationsModule,
         TerminalModule,
         DomainsModule,
+        DatabasesModule,
       ]
     : [];
 

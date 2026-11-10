@@ -311,12 +311,21 @@ export class DockerPipelineService {
     imageTag: string,
     contextDir: string,
     onLog?: LogCallback,
+    signal?: AbortSignal,
   ): Promise<PipelineStepResult> {
     const start = Date.now();
     const nixpacksArgs = ['build', '.', '--name', imageTag];
-    const result = onLog
-      ? await this.executeCommand('nixpacks', nixpacksArgs, contextDir, onLog)
-      : await this.executeCommand('nixpacks', nixpacksArgs, contextDir);
+    const result = signal
+      ? await this.executeCommand(
+          'nixpacks',
+          nixpacksArgs,
+          contextDir,
+          onLog,
+          signal,
+        )
+      : onLog
+        ? await this.executeCommand('nixpacks', nixpacksArgs, contextDir, onLog)
+        : await this.executeCommand('nixpacks', nixpacksArgs, contextDir);
 
     const logs = (
       result.stdout + (result.stderr ? `\n${result.stderr}` : '')
@@ -332,6 +341,7 @@ export class DockerPipelineService {
     imageTag: string,
     contextDir: string,
     onLog?: LogCallback,
+    signal?: AbortSignal,
   ): Promise<PipelineStepResult> {
     const runtime = await this.detectRuntime(contextDir);
 
@@ -340,7 +350,9 @@ export class DockerPipelineService {
         'Dockerfile detected. Using Docker build pipeline...\n',
         'stdout',
       );
-      return this.buildWithDocker(imageTag, contextDir, onLog);
+      return signal
+        ? this.buildWithDocker(imageTag, contextDir, onLog, signal)
+        : this.buildWithDocker(imageTag, contextDir, onLog);
     }
 
     const langMsg =
@@ -349,7 +361,9 @@ export class DockerPipelineService {
         : 'No Dockerfile found. Using Nixpacks build pipeline...\n';
     onLog?.(langMsg, 'stdout');
 
-    return this.buildWithNixpacks(imageTag, contextDir, onLog);
+    return signal
+      ? this.buildWithNixpacks(imageTag, contextDir, onLog, signal)
+      : this.buildWithNixpacks(imageTag, contextDir, onLog);
   }
 
   async runContainer(

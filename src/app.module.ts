@@ -11,6 +11,7 @@ import { WebhooksModule } from './webhooks/webhooks.module.js';
 import { DeploymentModule } from './deployment/deployment.module.js';
 import { LogsModule } from './logs/logs.module.js';
 import { MetricsModule } from './metrics/metrics.module.js';
+import { EncryptionModule } from './common/encryption/encryption.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { ProjectsModule } from './projects/projects.module.js';
@@ -19,6 +20,7 @@ import { NotificationsModule } from './notifications/notifications.module.js';
 import { TerminalModule } from './terminal/terminal.module.js';
 import { DomainsModule } from './domains/domains.module.js';
 import { DatabasesModule } from './databases/databases.module.js';
+import { VolumesModule } from './volumes/volumes.module.js';
 import { MaintenanceModule } from './maintenance/maintenance.module.js';
 import { getTypeOrmConfig } from './database/database.config.js';
 
@@ -49,6 +51,7 @@ const databaseModules =
         TerminalModule,
         DomainsModule,
         DatabasesModule,
+        VolumesModule,
         MaintenanceModule,
       ]
     : [];
@@ -81,6 +84,7 @@ const workerModules =
     WebhooksModule,
     LogsModule,
     MetricsModule,
+    EncryptionModule,
   ],
   controllers: [AppController],
   providers: [

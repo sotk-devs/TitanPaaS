@@ -92,7 +92,7 @@ export class DeploymentWorker extends WorkerHost {
     if (data.projectId && this.projectRepository) {
       project = await this.projectRepository.findOne({
         where: { id: data.projectId },
-        relations: ['customDomains'],
+        relations: ['customDomains', 'volumes'],
       });
       if (project) {
         port = project.port || 3000;
@@ -254,6 +254,17 @@ export class DeploymentWorker extends WorkerHost {
           ?.filter((d: any) => d.status === 'VERIFIED')
           ?.map((d: any) => d.domain) || [];
 
+      const volumeMounts =
+        project?.volumes?.map((v: any) => ({
+          volumeName: v.volumeName,
+          mountPath: v.mountPath,
+          readOnly: v.readOnly ?? false,
+        })) || [];
+
+      if (volumeMounts.length > 0) {
+        emitLog(`Mounting ${volumeMounts.length} persistent volume(s)...\n`);
+      }
+
       const runResult = await this.dockerPipeline.runContainer(
         imageTag,
         containerName,
@@ -265,6 +276,7 @@ export class DeploymentWorker extends WorkerHost {
           network: process.env.DOCKER_NETWORK || 'titan-network',
           resourceLimits,
           customDomains: verifiedDomains,
+          volumes: volumeMounts,
           onLog: emitLog,
           signal: abortSignal,
         },
@@ -311,7 +323,7 @@ export class DeploymentWorker extends WorkerHost {
           : `http://localhost:${port}${normalizedPath}`;
 
         emitLog(
-          `🌐 Executing HTTP healthcheck on ${targetUrl} (expected: ${project.healthcheckExpectedStatus || 200}, retries: ${project.healthcheckRetries || 3}, timeout: ${project.healthcheckTimeout || 5}s)...\n`,
+          `Executing HTTP healthcheck on ${targetUrl} (expected: ${project.healthcheckExpectedStatus || 200}, retries: ${project.healthcheckRetries || 3}, timeout: ${project.healthcheckTimeout || 5}s)...\n`,
         );
 
         const httpHealthResult = await this.dockerPipeline.checkHttpHealth({

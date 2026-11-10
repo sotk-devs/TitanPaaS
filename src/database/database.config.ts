@@ -7,6 +7,7 @@ import { CustomDomain } from '../domains/entities/custom-domain.entity.js';
 import { ProjectDatabase } from '../databases/entities/project-database.entity.js';
 import { DatabaseBackup } from '../databases/entities/database-backup.entity.js';
 import { BackupSchedule } from '../databases/entities/backup-schedule.entity.js';
+import { ProjectVolume } from '../volumes/entities/project-volume.entity.js';
 
 export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
   const isTest = process.env.NODE_ENV === 'test';
@@ -24,6 +25,7 @@ export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
       ProjectDatabase,
       DatabaseBackup,
       BackupSchedule,
+      ProjectVolume,
     ],
     migrations: ['dist/database/migrations/*.js'],
     // Avoid hanging if database is unavailable

@@ -7,6 +7,7 @@ import { CustomDomain } from '../domains/entities/custom-domain.entity.js';
 import { ProjectDatabase } from '../databases/entities/project-database.entity.js';
 import { DatabaseBackup } from '../databases/entities/database-backup.entity.js';
 import { BackupSchedule } from '../databases/entities/backup-schedule.entity.js';
+import { ProjectVolume } from '../volumes/entities/project-volume.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
   ? {
@@ -21,6 +22,7 @@ export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
         ProjectDatabase,
         DatabaseBackup,
         BackupSchedule,
+        ProjectVolume,
       ],
       migrations: ['src/database/migrations/*.ts'],
       synchronize: false,
@@ -41,6 +43,7 @@ export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
         ProjectDatabase,
         DatabaseBackup,
         BackupSchedule,
+        ProjectVolume,
       ],
       migrations: ['src/database/migrations/*.ts'],
       synchronize: false,

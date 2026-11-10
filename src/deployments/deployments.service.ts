@@ -244,7 +244,7 @@ export class DeploymentsService {
     // 3. Actualizar estado a CANCELLED en base de datos
     deployment.status = DeploymentStatus.CANCELLED;
     deployment.finishedAt = new Date();
-    const cancellationNote = '\n🛑 Despliegue cancelado por el usuario.\n';
+    const cancellationNote = '\nDespliegue cancelado por el usuario.\n';
     deployment.logs = (deployment.logs || '') + cancellationNote;
 
     const savedDeployment = await this.deploymentRepository.save(deployment);
@@ -260,7 +260,7 @@ export class DeploymentsService {
         );
         this.logsGateway.emitLog(
           id,
-          '\n🛑 Deployment was cancelled by user.\n',
+          '\nDeployment was cancelled by user.\n',
           'stderr',
         );
       } catch (wsErr) {

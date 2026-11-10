@@ -69,15 +69,15 @@ export class DeploymentWorker extends WorkerHost {
     };
 
     this.logger.log(
-      `🚀 [Job #${job.id}] Iniciando pipeline de despliegue para ${data.repositoryName} (${data.branch})`,
+      `[Job #${job.id}] Iniciando pipeline de despliegue para ${data.repositoryName} (${data.branch})`,
     );
     this.logger.log(
-      `📦 Commit: ${data.commitSha.substring(0, 7)} - "${data.commitMessage}" por @${data.author}`,
+      `Commit: ${data.commitSha.substring(0, 7)} - "${data.commitMessage}" por @${data.author}`,
     );
 
     emitStatus(DeploymentStatus.BUILDING, 0, 'starting');
     emitLog(
-      `🚀 Starting deployment pipeline for ${data.repositoryName} (${data.branch})\nCommit: ${data.commitSha.substring(0, 7)} - "${data.commitMessage}" by @${data.author}\n`,
+      `Starting deployment pipeline for ${data.repositoryName} (${data.branch})\nCommit: ${data.commitSha.substring(0, 7)} - "${data.commitMessage}" by @${data.author}\n`,
     );
 
     // Obtener configuración de proyecto si existe
@@ -136,11 +136,11 @@ export class DeploymentWorker extends WorkerHost {
 
       // Stage 1: Clonación del repositorio
       this.logger.log(
-        `📥 [Job #${job.id}] [1/4] Clonando repositorio desde ${data.cloneUrl}...`,
+        `[Job #${job.id}] [1/4] Clonando repositorio desde ${data.cloneUrl}...`,
       );
       emitStatus(DeploymentStatus.BUILDING, 10, 'clone');
       emitLog(
-        `📥 [1/4] Cloning repository from ${data.cloneUrl} (${data.branch})...\n`,
+        `[1/4] Cloning repository from ${data.cloneUrl} (${data.branch})...\n`,
       );
 
       const cloneResult = await this.dockerPipeline.cloneRepository(
@@ -171,10 +171,10 @@ export class DeploymentWorker extends WorkerHost {
 
       // Stage 2: Compilación de imagen Docker
       this.logger.log(
-        `🔨 [Job #${job.id}] [2/4] Compilando imagen Docker ${imageTag}...`,
+        `[Job #${job.id}] [2/4] Compilando imagen Docker ${imageTag}...`,
       );
       emitStatus(DeploymentStatus.BUILDING, 30, 'build');
-      emitLog(`🔨 [2/4] Building Docker image ${imageTag}...\n`);
+      emitLog(`[2/4] Building Docker image ${imageTag}...\n`);
 
       const buildResult = await this.dockerPipeline.buildImage(
         imageTag,
@@ -209,11 +209,11 @@ export class DeploymentWorker extends WorkerHost {
 
       // Stage 3: Creación y ejecución de contenedor Docker con soporte Traefik y streaming de logs
       this.logger.log(
-        `🐳 [Job #${job.id}] [3/4] Desplegando contenedor Docker ${containerName} en puerto ${port}...`,
+        `[Job #${job.id}] [3/4] Desplegando contenedor Docker ${containerName} en puerto ${port}...`,
       );
       emitStatus(DeploymentStatus.DEPLOYING, 60, 'docker_deploy');
       emitLog(
-        `🐳 [3/4] Deploying Docker container ${containerName} on port ${port}...\n`,
+        `[3/4] Deploying Docker container ${containerName} on port ${port}...\n`,
       );
 
       const subdomain = project?.name
@@ -243,9 +243,9 @@ export class DeploymentWorker extends WorkerHost {
       deploymentUrl = runResult.url;
       if (deploymentUrl) {
         this.logger.log(
-          `🌐 [Job #${job.id}] Enrutamiento dinámico activo en Traefik: ${deploymentUrl}`,
+          `[Job #${job.id}] Enrutamiento dinámico activo en Traefik: ${deploymentUrl}`,
         );
-        emitLog(`🌐 Dynamic routing active at Traefik: ${deploymentUrl}\n`);
+        emitLog(`Dynamic routing active at Traefik: ${deploymentUrl}\n`);
       }
       accumulatedLogs += `=== STAGE 3: DOCKER DEPLOY ===\n${runResult.logs}\n\n`;
       await job.updateProgress(75);
@@ -257,12 +257,10 @@ export class DeploymentWorker extends WorkerHost {
 
       // Stage 4: Verificación de salud (Healthcheck)
       this.logger.log(
-        `🩺 [Job #${job.id}] [4/4] Verificando estado de salud del contenedor ${containerId}...`,
+        `[Job #${job.id}] [4/4] Verificando estado de salud del contenedor ${containerId}...`,
       );
       emitStatus(DeploymentStatus.DEPLOYING, 85, 'healthcheck');
-      emitLog(
-        `🩺 [4/4] Verifying health status of container ${containerId}...\n`,
-      );
+      emitLog(`[4/4] Verifying health status of container ${containerId}...\n`);
 
       const healthResult = abortSignal
         ? await this.dockerPipeline.checkHealth(
@@ -294,10 +292,10 @@ export class DeploymentWorker extends WorkerHost {
       }
 
       this.logger.log(
-        `✅ [Job #${job.id}] Despliegue completado exitosamente en ${durationMs}ms para ${data.repositoryName} (${data.branch})`,
+        `[Job #${job.id}] Despliegue completado exitosamente en ${durationMs}ms para ${data.repositoryName} (${data.branch})`,
       );
       emitStatus(DeploymentStatus.DEPLOYED, 100, 'completed');
-      emitLog(`✅ Deployment completed successfully in ${durationMs}ms\n`);
+      emitLog(`Deployment completed successfully in ${durationMs}ms\n`);
 
       return {
         jobId: String(job.id),
@@ -315,7 +313,7 @@ export class DeploymentWorker extends WorkerHost {
     } catch (error) {
       const finishedAt = new Date().toISOString();
       const errorMessage = (error as Error).message;
-      accumulatedLogs += `\n❌ ERROR: ${errorMessage}\n`;
+      accumulatedLogs += `\nERROR: ${errorMessage}\n`;
 
       const isCancelled =
         errorMessage.includes('cancelled') ||
@@ -359,7 +357,7 @@ export class DeploymentWorker extends WorkerHost {
                 `[Auto-Rollback] Restaurando contenedor del despliegue previo exitoso #${previousSuccess.id}...`,
               );
               emitLog(
-                `\n🔄 [Auto-Rollback] Deployment failed. Automatically restoring previous healthy deployment #${previousSuccess.id}...\n`,
+                `\n[Auto-Rollback] Deployment failed. Automatically restoring previous healthy deployment #${previousSuccess.id}...\n`,
                 'stdout',
               );
 
@@ -386,7 +384,7 @@ export class DeploymentWorker extends WorkerHost {
 
               accumulatedLogs += `\n=== AUTOMATIC ROLLBACK ===\nSuccessfully restored previous deployment #${previousSuccess.id}\n`;
               emitLog(
-                `✅ [Auto-Rollback] Restored deployment #${previousSuccess.id}\n`,
+                `[Auto-Rollback] Restored deployment #${previousSuccess.id}\n`,
               );
             }
           } catch (rollbackError) {
@@ -405,7 +403,7 @@ export class DeploymentWorker extends WorkerHost {
       }
 
       emitStatus(finalStatus, undefined, isCancelled ? 'cancelled' : 'failed');
-      emitLog(`\n❌ ERROR: ${errorMessage}\n`, 'stderr');
+      emitLog(`\nERROR: ${errorMessage}\n`, 'stderr');
 
       throw error;
     } finally {

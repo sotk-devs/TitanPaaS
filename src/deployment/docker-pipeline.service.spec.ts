@@ -96,7 +96,35 @@ describe('DockerPipelineService', () => {
     });
   });
 
-  describe('buildImage', () => {
+  describe('hasDockerfile', () => {
+    it('should return false if directory does not have Dockerfile', async () => {
+      const result = await service.hasDockerfile(testDir);
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('detectRuntime', () => {
+    it('should detect Dockerfile if present', async () => {
+      jest.spyOn(service, 'hasDockerfile').mockResolvedValue(true);
+      const result = await service.detectRuntime(testDir);
+      expect(result).toEqual({
+        hasDockerfile: true,
+        buildTool: 'docker',
+      });
+    });
+
+    it('should return Unknown runtime when no matching files are found', async () => {
+      jest.spyOn(service, 'hasDockerfile').mockResolvedValue(false);
+      const result = await service.detectRuntime(testDir);
+      expect(result).toEqual({
+        hasDockerfile: false,
+        language: 'Unknown',
+        buildTool: 'nixpacks',
+      });
+    });
+  });
+
+  describe('buildWithDocker', () => {
     it('should invoke docker build and return output logs', async () => {
       jest.spyOn(service, 'executeCommand').mockResolvedValue({
         stdout: 'Successfully built image-id',
@@ -104,7 +132,7 @@ describe('DockerPipelineService', () => {
         exitCode: 0,
       });
 
-      const result = await service.buildImage('my-image:latest', testDir);
+      const result = await service.buildWithDocker('my-image:latest', testDir);
 
       expect(service.executeCommand).toHaveBeenCalledWith(
         'docker',
@@ -122,7 +150,7 @@ describe('DockerPipelineService', () => {
         exitCode: 0,
       });
 
-      await service.buildImage('my-image:latest', testDir, mockOnLog);
+      await service.buildWithDocker('my-image:latest', testDir, mockOnLog);
 
       expect(service.executeCommand).toHaveBeenCalledWith(
         'docker',
@@ -130,6 +158,107 @@ describe('DockerPipelineService', () => {
         testDir,
         mockOnLog,
       );
+    });
+  });
+
+  describe('buildWithNixpacks', () => {
+    it('should invoke nixpacks build and return output logs', async () => {
+      jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'Successfully built with nixpacks',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const result = await service.buildWithNixpacks(
+        'my-image:latest',
+        testDir,
+      );
+
+      expect(service.executeCommand).toHaveBeenCalledWith(
+        'nixpacks',
+        ['build', '.', '--name', 'my-image:latest'],
+        testDir,
+      );
+      expect(result.logs).toContain('Successfully built with nixpacks');
+    });
+
+    it('should pass onLog callback to executeCommand when provided', async () => {
+      const mockOnLog = jest.fn();
+      jest.spyOn(service, 'executeCommand').mockResolvedValue({
+        stdout: 'Nixpacks phase 1...',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      await service.buildWithNixpacks('my-image:latest', testDir, mockOnLog);
+
+      expect(service.executeCommand).toHaveBeenCalledWith(
+        'nixpacks',
+        ['build', '.', '--name', 'my-image:latest'],
+        testDir,
+        mockOnLog,
+      );
+    });
+  });
+
+  describe('buildImage', () => {
+    it('should invoke docker build when Dockerfile is detected', async () => {
+      jest.spyOn(service, 'detectRuntime').mockResolvedValue({
+        hasDockerfile: true,
+        buildTool: 'docker',
+      });
+      jest.spyOn(service, 'buildWithDocker').mockResolvedValue({
+        logs: 'Docker built successfully',
+        durationMs: 50,
+      });
+
+      const mockOnLog = jest.fn();
+      const result = await service.buildImage(
+        'my-image:latest',
+        testDir,
+        mockOnLog,
+      );
+
+      expect(service.buildWithDocker).toHaveBeenCalledWith(
+        'my-image:latest',
+        testDir,
+        mockOnLog,
+      );
+      expect(mockOnLog).toHaveBeenCalledWith(
+        expect.stringContaining('Dockerfile detected'),
+        'stdout',
+      );
+      expect(result.logs).toBe('Docker built successfully');
+    });
+
+    it('should invoke nixpacks build when Dockerfile is not detected', async () => {
+      jest.spyOn(service, 'detectRuntime').mockResolvedValue({
+        hasDockerfile: false,
+        language: 'Node.js',
+        buildTool: 'nixpacks',
+      });
+      jest.spyOn(service, 'buildWithNixpacks').mockResolvedValue({
+        logs: 'Nixpacks built successfully',
+        durationMs: 70,
+      });
+
+      const mockOnLog = jest.fn();
+      const result = await service.buildImage(
+        'my-image:latest',
+        testDir,
+        mockOnLog,
+      );
+
+      expect(service.buildWithNixpacks).toHaveBeenCalledWith(
+        'my-image:latest',
+        testDir,
+        mockOnLog,
+      );
+      expect(mockOnLog).toHaveBeenCalledWith(
+        expect.stringContaining('Auto-detected Node.js runtime'),
+        'stdout',
+      );
+      expect(result.logs).toBe('Nixpacks built successfully');
     });
   });
 

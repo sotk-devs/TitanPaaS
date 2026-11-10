@@ -9,6 +9,7 @@ import { DeploymentsService } from './deployments.service.js';
 import { Deployment } from './entities/deployment.entity.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { DeploymentStatus } from './enums/deployment-status.enum.js';
+import { LogDownloadFormat } from './dto/download-logs-query.dto.js';
 import { DEPLOY_QUEUE, DEPLOY_JOB } from '../webhooks/webhooks.constants.js';
 import { DockerPipelineService } from '../deployment/docker-pipeline.service.js';
 import { LogsGateway } from '../logs/logs.gateway.js';
@@ -479,6 +480,89 @@ describe('DeploymentsService', () => {
 
       await expect(
         service.rollbackDeployment(userId, deploymentId),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getDeploymentLogsForDownload', () => {
+    it('should return TXT logs with text/plain content type by default', async () => {
+      mockDeploymentRepo.findOne?.mockResolvedValueOnce({
+        ...mockDeployment,
+        logs: '=== STAGE 1: CLONE ===\nCloned repo\n=== STAGE 2: BUILD ===\nBuild success',
+      } as any);
+
+      const result = await service.getDeploymentLogsForDownload(
+        userId,
+        deploymentId,
+      );
+
+      expect(result.contentType).toBe('text/plain; charset=utf-8');
+      expect(result.filename).toBe(
+        `test-app-deployment-${deploymentId.substring(0, 8)}-logs.txt`,
+      );
+      expect(result.content).toContain('=== STAGE 1: CLONE ===');
+      expect(result.content).toContain('Build success');
+    });
+
+    it('should return JSON logs with application/json content type when format is JSON', async () => {
+      mockDeploymentRepo.findOne?.mockResolvedValueOnce({
+        ...mockDeployment,
+        logs: 'Log output here',
+        stages: [{ name: 'clone', status: 'success', durationMs: 120 }],
+      } as any);
+
+      const result = await service.getDeploymentLogsForDownload(
+        userId,
+        deploymentId,
+        LogDownloadFormat.JSON,
+      );
+
+      expect(result.contentType).toBe('application/json; charset=utf-8');
+      expect(result.filename).toBe(
+        `test-app-deployment-${deploymentId.substring(0, 8)}-logs.json`,
+      );
+
+      const parsed = JSON.parse(result.content);
+      expect(parsed.deploymentId).toBe(deploymentId);
+      expect(parsed.projectId).toBe(mockProject.id);
+      expect(parsed.projectName).toBe(mockProject.name);
+      expect(parsed.status).toBe(DeploymentStatus.DEPLOYED);
+      expect(parsed.logs).toBe('Log output here');
+      expect(parsed.stages).toHaveLength(1);
+    });
+
+    it('should handle deployments with null logs gracefully', async () => {
+      mockDeploymentRepo.findOne?.mockResolvedValueOnce({
+        ...mockDeployment,
+        logs: null,
+      } as any);
+
+      const result = await service.getDeploymentLogsForDownload(
+        userId,
+        deploymentId,
+        LogDownloadFormat.TXT,
+      );
+
+      expect(result.content).toBe('');
+      expect(result.contentType).toBe('text/plain; charset=utf-8');
+    });
+
+    it('should throw NotFoundException if deployment does not exist', async () => {
+      mockDeploymentRepo.findOne?.mockResolvedValueOnce(null);
+
+      await expect(
+        service.getDeploymentLogsForDownload(userId, 'non-existent-id'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException if deployment belongs to another user', async () => {
+      mockDeploymentRepo.findOne?.mockResolvedValueOnce({
+        ...mockDeployment,
+        project: { ...mockProject, userId: 'other-user' },
+      } as any);
+
+      await expect(
+        service.getDeploymentLogsForDownload(userId, deploymentId),
       ).rejects.toThrow(NotFoundException);
     });
   });

@@ -14,6 +14,7 @@ import type { User } from '../../users/entities/user.entity.js';
 import type { Deployment } from '../../deployments/entities/deployment.entity.js';
 import type { NotificationWebhook } from '../../notifications/entities/notification-webhook.entity.js';
 import type { CustomDomain } from '../../domains/entities/custom-domain.entity.js';
+import type { ProjectVolume } from '../../volumes/entities/project-volume.entity.js';
 
 @Entity('projects')
 export class Project {
@@ -93,6 +94,9 @@ export class Project {
 
   @OneToMany('CustomDomain', 'project')
   customDomains: Relation<CustomDomain>[];
+
+  @OneToMany('ProjectVolume', 'project')
+  volumes?: Relation<ProjectVolume>[];
 
   @CreateDateColumn({ type: 'timestamp with time zone', name: 'created_at' })
   createdAt: Date;

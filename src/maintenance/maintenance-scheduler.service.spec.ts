@@ -13,13 +13,7 @@ describe('MaintenanceSchedulerService', () => {
 
   beforeEach(async () => {
     mockQueue = {
-      getRepeatableJobs: jest.fn().mockResolvedValue([
-        {
-          name: GARBAGE_COLLECTION_JOB,
-          key: 'key-old-job',
-        },
-      ]),
-      removeRepeatableByKey: jest.fn().mockResolvedValue(true),
+      upsertJobScheduler: jest.fn().mockResolvedValue({ id: 'sched-1' }),
       add: jest.fn().mockResolvedValue({ id: 'job-123' }),
     };
 
@@ -43,20 +37,16 @@ describe('MaintenanceSchedulerService', () => {
   });
 
   describe('setupRecurringGarbageCollection', () => {
-    it('should clear existing repeatable jobs and register new cron schedule', async () => {
+    it('should register cron schedule via upsertJobScheduler', async () => {
       await service.setupRecurringGarbageCollection();
 
-      expect(mockQueue.getRepeatableJobs).toHaveBeenCalled();
-      expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledWith(
-        'key-old-job',
-      );
-      expect(mockQueue.add).toHaveBeenCalledWith(
-        GARBAGE_COLLECTION_JOB,
-        expect.any(Object),
+      expect(mockQueue.upsertJobScheduler).toHaveBeenCalledWith(
+        'docker-gc-scheduler',
         expect.objectContaining({
-          repeat: expect.objectContaining({
-            pattern: expect.any(String),
-          }),
+          pattern: expect.any(String),
+        }),
+        expect.objectContaining({
+          name: GARBAGE_COLLECTION_JOB,
         }),
       );
     });

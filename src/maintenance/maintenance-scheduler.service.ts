@@ -42,23 +42,18 @@ export class MaintenanceSchedulerService implements OnModuleInit {
       process.env.MAINTENANCE_CRON_SCHEDULE || DEFAULT_CRON_SCHEDULE;
 
     try {
-      // Limpiar tareas repetibles previas para evitar duplicados
-      const repeatableJobs = await this.maintenanceQueue.getRepeatableJobs();
-      for (const job of repeatableJobs) {
-        if (job.name === GARBAGE_COLLECTION_JOB) {
-          await this.maintenanceQueue.removeRepeatableByKey(job.key);
-        }
-      }
-
-      await this.maintenanceQueue.add(
-        GARBAGE_COLLECTION_JOB,
-        { olderThanHours: DEFAULT_PRUNE_OLDER_THAN_HOURS },
+      await this.maintenanceQueue.upsertJobScheduler(
+        'docker-gc-scheduler',
         {
-          repeat: {
-            pattern: cronPattern,
+          pattern: cronPattern,
+        },
+        {
+          name: GARBAGE_COLLECTION_JOB,
+          data: { olderThanHours: DEFAULT_PRUNE_OLDER_THAN_HOURS },
+          opts: {
+            removeOnComplete: 10,
+            removeOnFail: 25,
           },
-          removeOnComplete: 10,
-          removeOnFail: 25,
         },
       );
 

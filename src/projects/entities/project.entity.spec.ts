@@ -3,6 +3,7 @@ import { Project } from './project.entity.js';
 import { User } from '../../users/entities/user.entity.js';
 import { Deployment } from '../../deployments/entities/deployment.entity.js';
 import { DeploymentStatus } from '../../deployments/enums/deployment-status.enum.js';
+import { EncryptionTransformer } from '../../common/encryption/encryption.transformer.js';
 
 describe('Project Entity', () => {
   it('should correctly instantiate a Project entity with all properties', () => {
@@ -56,5 +57,24 @@ describe('Project Entity', () => {
     expect(project.user).toBe(user);
     expect(project.deployments).toHaveLength(1);
     expect(project.deployments[0].status).toBe(DeploymentStatus.DEPLOYED);
+  });
+
+  it('should encrypt envVariables for storage and decrypt them back when reading', () => {
+    const transformer = new EncryptionTransformer();
+
+    const plainVars = {
+      API_SECRET: 'super-secret-token',
+      DB_PASS: 'db-pass-123',
+    };
+    const encrypted = transformer.to(plainVars);
+
+    expect(encrypted.__encrypted).toBe(true);
+    expect(encrypted.iv).toBeDefined();
+    expect(encrypted.tag).toBeDefined();
+    expect(encrypted.data).toBeDefined();
+    expect(encrypted.data).not.toContain('super-secret-token');
+
+    const decrypted = transformer.from(encrypted);
+    expect(decrypted).toEqual(plainVars);
   });
 });

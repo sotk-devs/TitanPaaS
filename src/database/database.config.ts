@@ -5,6 +5,7 @@ import { Deployment } from '../deployments/entities/deployment.entity.js';
 import { NotificationWebhook } from '../notifications/entities/notification-webhook.entity.js';
 import { CustomDomain } from '../domains/entities/custom-domain.entity.js';
 import { ProjectDatabase } from '../databases/entities/project-database.entity.js';
+import { ProjectVolume } from '../volumes/entities/project-volume.entity.js';
 
 export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
   const isTest = process.env.NODE_ENV === 'test';
@@ -20,6 +21,7 @@ export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
       NotificationWebhook,
       CustomDomain,
       ProjectDatabase,
+      ProjectVolume,
     ],
     migrations: ['dist/database/migrations/*.js'],
     // Avoid hanging if database is unavailable

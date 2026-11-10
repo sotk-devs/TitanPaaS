@@ -5,6 +5,7 @@ import { Deployment } from '../deployments/entities/deployment.entity.js';
 import { NotificationWebhook } from '../notifications/entities/notification-webhook.entity.js';
 import { CustomDomain } from '../domains/entities/custom-domain.entity.js';
 import { ProjectDatabase } from '../databases/entities/project-database.entity.js';
+import { ProjectVolume } from '../volumes/entities/project-volume.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
   ? {
@@ -17,6 +18,7 @@ export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
         NotificationWebhook,
         CustomDomain,
         ProjectDatabase,
+        ProjectVolume,
       ],
       migrations: ['src/database/migrations/*.ts'],
       synchronize: false,
@@ -35,6 +37,7 @@ export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
         NotificationWebhook,
         CustomDomain,
         ProjectDatabase,
+        ProjectVolume,
       ],
       migrations: ['src/database/migrations/*.ts'],
       synchronize: false,

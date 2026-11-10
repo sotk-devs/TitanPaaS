@@ -34,6 +34,12 @@ export interface ResourceLimits {
   memorySwap?: string;
 }
 
+export interface VolumeMount {
+  volumeName: string;
+  mountPath: string;
+  readOnly?: boolean;
+}
+
 export interface RunContainerOptions {
   subdomain?: string;
   baseDomain?: string;
@@ -41,6 +47,7 @@ export interface RunContainerOptions {
   labels?: Record<string, string>;
   resourceLimits?: ResourceLimits;
   customDomains?: string[];
+  volumes?: VolumeMount[];
   onLog?: LogCallback;
   signal?: AbortSignal;
 }
@@ -457,6 +464,14 @@ export class DockerPipelineService {
       }
     }
 
+    const volumeArgs: string[] = [];
+    if (options?.volumes?.length) {
+      for (const vol of options.volumes) {
+        const mode = vol.readOnly ? ':ro' : ':rw';
+        volumeArgs.push('-v', `${vol.volumeName}:${vol.mountPath}${mode}`);
+      }
+    }
+
     const args = [
       'run',
       '-d',
@@ -466,6 +481,7 @@ export class DockerPipelineService {
       '-p',
       `${port}:${port}`,
       ...resourceArgs,
+      ...volumeArgs,
       ...labelArgs,
       ...envArgs,
       imageTag,
@@ -647,6 +663,26 @@ export class DockerPipelineService {
       return result.stdout.trim();
     } catch {
       return 'not_found';
+    }
+  }
+
+  async createDockerVolume(volumeName: string): Promise<void> {
+    try {
+      await this.executeCommand('docker', ['volume', 'create', volumeName]);
+    } catch (err) {
+      this.logger.warn(
+        `Error creando volumen Docker ${volumeName}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  async removeDockerVolume(volumeName: string): Promise<void> {
+    try {
+      await this.executeCommand('docker', ['volume', 'rm', '-f', volumeName]);
+    } catch (err) {
+      this.logger.warn(
+        `Error eliminando volumen Docker ${volumeName}: ${(err as Error).message}`,
+      );
     }
   }
 

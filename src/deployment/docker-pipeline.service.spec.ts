@@ -345,6 +345,50 @@ describe('DockerPipelineService', () => {
       expect(result.url).toBe('http://demo-app.localhost');
       expect(result.logs).toContain('http://demo-app.localhost');
     });
+
+    it('should configure cgroups resource limits (--cpus, --memory, --memory-swap) when provided', async () => {
+      jest
+        .spyOn(service, 'executeCommand')
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 })
+        .mockResolvedValueOnce({
+          stdout: 'container-id-limits\n',
+          stderr: '',
+          exitCode: 0,
+        });
+
+      const result = await service.runContainer(
+        'titan-app:latest',
+        'titan-app-limits',
+        3000,
+        { PORT: '3000' },
+        {
+          resourceLimits: {
+            cpus: 1.5,
+            memory: '512m',
+            memorySwap: '1g',
+          },
+        },
+      );
+
+      expect(service.executeCommand).toHaveBeenCalledWith('docker', [
+        'run',
+        '-d',
+        '--name',
+        'titan-app-limits',
+        '-p',
+        '3000:3000',
+        '--cpus',
+        '1.5',
+        '--memory',
+        '512m',
+        '--memory-swap',
+        '1g',
+        '-e',
+        'PORT=3000',
+        'titan-app:latest',
+      ]);
+      expect(result.containerId).toBe('container-id-limits');
+    });
   });
 
   describe('checkHealth', () => {

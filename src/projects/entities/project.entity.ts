@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 import type { User } from '../../users/entities/user.entity.js';
 import type { Deployment } from '../../deployments/entities/deployment.entity.js';
+import type { NotificationWebhook } from '../../notifications/entities/notification-webhook.entity.js';
 import type { CustomDomain } from '../../domains/entities/custom-domain.entity.js';
 import { EncryptionTransformer } from '../../common/encryption/encryption.transformer.js';
 
@@ -43,6 +44,15 @@ export class Project {
     transformer: new EncryptionTransformer(),
   })
   envVariables: Record<string, string>;
+
+  @Column({ type: 'float', nullable: true, name: 'cpu_limit' })
+  cpuLimit?: number | null;
+
+  @Column({ type: 'varchar', nullable: true, name: 'memory_limit' })
+  memoryLimit?: string | null;
+
+  @Column({ type: 'varchar', nullable: true, name: 'memory_swap' })
+  memorySwap?: string | null;
 
   @Column({
     type: 'varchar',
@@ -83,6 +93,9 @@ export class Project {
 
   @OneToMany('Deployment', 'project')
   deployments: Relation<Deployment>[];
+
+  @OneToMany('NotificationWebhook', 'project')
+  notificationWebhooks?: Relation<NotificationWebhook>[];
 
   @OneToMany('CustomDomain', 'project')
   customDomains: Relation<CustomDomain>[];

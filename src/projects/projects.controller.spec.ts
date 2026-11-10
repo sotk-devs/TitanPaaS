@@ -98,6 +98,21 @@ describe('ProjectsController', () => {
       expect(service.create).toHaveBeenCalledWith(mockUser.id, dto);
       expect(result).toEqual(mockProject);
     });
+
+    it('should forward resource limits (cpuLimit, memoryLimit, memorySwap) to service.create', async () => {
+      const dto = {
+        name: 'sample-project',
+        repositoryUrl: 'https://github.com/sotk-devs/sample-repo.git',
+        repositoryName: 'sotk-devs/sample-repo',
+        cpuLimit: 1.0,
+        memoryLimit: '512m',
+        memorySwap: '1g',
+      };
+
+      await controller.create(mockReq, dto);
+
+      expect(service.create).toHaveBeenCalledWith(mockUser.id, dto);
+    });
   });
 
   describe('findAll', () => {

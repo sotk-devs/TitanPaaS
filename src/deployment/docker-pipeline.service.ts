@@ -28,11 +28,18 @@ export interface RuntimeDetectionResult {
 
 export type LogCallback = (chunk: string, stream: 'stdout' | 'stderr') => void;
 
+export interface ResourceLimits {
+  cpus?: number;
+  memory?: string;
+  memorySwap?: string;
+}
+
 export interface RunContainerOptions {
   subdomain?: string;
   baseDomain?: string;
   network?: string;
   labels?: Record<string, string>;
+  resourceLimits?: ResourceLimits;
   customDomains?: string[];
   onLog?: LogCallback;
   signal?: AbortSignal;
@@ -437,6 +444,19 @@ export class DockerPipelineService {
 
     const networkArgs: string[] = network ? ['--network', network] : [];
 
+    const resourceArgs: string[] = [];
+    if (options?.resourceLimits) {
+      if (options.resourceLimits.cpus) {
+        resourceArgs.push('--cpus', String(options.resourceLimits.cpus));
+      }
+      if (options.resourceLimits.memory) {
+        resourceArgs.push('--memory', options.resourceLimits.memory);
+      }
+      if (options.resourceLimits.memorySwap) {
+        resourceArgs.push('--memory-swap', options.resourceLimits.memorySwap);
+      }
+    }
+
     const args = [
       'run',
       '-d',
@@ -445,6 +465,7 @@ export class DockerPipelineService {
       ...networkArgs,
       '-p',
       `${port}:${port}`,
+      ...resourceArgs,
       ...labelArgs,
       ...envArgs,
       imageTag,

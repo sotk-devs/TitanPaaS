@@ -12,6 +12,10 @@ import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js
 import { DomainStatus } from '../domains/enums/domain-status.enum.js';
 import { CreateProjectDto } from './dto/create-project.dto.js';
 import { UpdateProjectDto } from './dto/update-project.dto.js';
+import { ImportEnvDto, ImportEnvMode } from './dto/import-env.dto.js';
+import { ImportEnvResponseDto } from './dto/import-env-response.dto.js';
+import { ExportEnvResponseDto } from './dto/export-env-response.dto.js';
+import { parseEnv, formatEnv } from './utils/env-parser.util.js';
 import { DockerPipelineService } from '../deployment/docker-pipeline.service.js';
 
 export interface ContainerActionResponse {
@@ -300,6 +304,49 @@ export class ProjectsService {
       action: 'restart',
       status: 'running',
       message: 'Contenedor reiniciado exitosamente.',
+    };
+  }
+
+  async importEnv(
+    userId: string,
+    id: string,
+    importEnvDto: ImportEnvDto,
+  ): Promise<ImportEnvResponseDto> {
+    const project = await this.findOne(userId, id);
+    const parsed = parseEnv(importEnvDto.content);
+
+    const mode = importEnvDto.mode || ImportEnvMode.MERGE;
+    let finalEnv: Record<string, string>;
+
+    if (mode === ImportEnvMode.REPLACE) {
+      finalEnv = { ...parsed };
+    } else {
+      finalEnv = {
+        ...project.envVariables,
+        ...parsed,
+      };
+    }
+
+    await this.update(userId, id, { envVariables: finalEnv });
+
+    return {
+      message: 'Variables de entorno importadas exitosamente',
+      mode,
+      importedCount: Object.keys(parsed).length,
+      totalCount: Object.keys(finalEnv).length,
+      variables: finalEnv,
+    };
+  }
+
+  async exportEnv(userId: string, id: string): Promise<ExportEnvResponseDto> {
+    const project = await this.findOne(userId, id);
+    const variables = project.envVariables || {};
+    const raw = formatEnv(variables);
+
+    return {
+      raw,
+      variables,
+      count: Object.keys(variables).length,
     };
   }
 }

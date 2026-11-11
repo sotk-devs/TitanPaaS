@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcrypt';
+import { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { LoginDto } from './dto/login.dto.js';
@@ -16,6 +17,10 @@ export interface AuthResponse {
     id: string;
     email: string;
     name: string;
+    githubId?: string | null;
+    githubUsername?: string | null;
+    avatarUrl?: string | null;
+    githubConnected?: boolean;
     createdAt: Date;
   };
 }
@@ -26,6 +31,25 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
   ) {}
+
+  async buildAuthResponse(user: User): Promise<AuthResponse> {
+    const payload: JwtPayload = { sub: user.id, email: user.email };
+    const access_token = await this.jwtService.signAsync(payload);
+
+    return {
+      access_token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        githubId: user.githubId ?? null,
+        githubUsername: user.githubUsername ?? null,
+        avatarUrl: user.avatarUrl ?? null,
+        githubConnected: Boolean(user.githubId),
+        createdAt: user.createdAt,
+      },
+    };
+  }
 
   async register(registerDto: RegisterDto): Promise<AuthResponse> {
     const existingUser = await this.usersService.findByEmail(registerDto.email);
@@ -42,23 +66,12 @@ export class AuthService {
       name: registerDto.name,
     });
 
-    const payload: JwtPayload = { sub: user.id, email: user.email };
-    const access_token = await this.jwtService.signAsync(payload);
-
-    return {
-      access_token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        createdAt: user.createdAt,
-      },
-    };
+    return this.buildAuthResponse(user);
   }
 
   async login(loginDto: LoginDto): Promise<AuthResponse> {
     const user = await this.usersService.findByEmail(loginDto.email);
-    if (!user) {
+    if (!user || !user.password) {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
@@ -70,17 +83,6 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    const payload: JwtPayload = { sub: user.id, email: user.email };
-    const access_token = await this.jwtService.signAsync(payload);
-
-    return {
-      access_token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        createdAt: user.createdAt,
-      },
-    };
+    return this.buildAuthResponse(user);
   }
 }

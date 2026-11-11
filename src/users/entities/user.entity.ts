@@ -9,6 +9,7 @@ import {
   type Relation,
 } from 'typeorm';
 import type { Project } from '../../projects/entities/project.entity.js';
+import type { ApiKey } from '../../api-keys/entities/api-key.entity.js';
 
 @Entity('users')
 export class User {
@@ -27,6 +28,9 @@ export class User {
 
   @OneToMany('Project', 'user')
   projects: Relation<Project>[];
+
+  @OneToMany('ApiKey', 'user')
+  apiKeys?: Relation<ApiKey>[];
 
   @CreateDateColumn({ type: 'timestamp with time zone', name: 'created_at' })
   createdAt: Date;

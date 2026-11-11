@@ -14,6 +14,7 @@ import { ProjectDatabase } from '../databases/entities/project-database.entity.j
 import { DatabaseBackup } from '../databases/entities/database-backup.entity.js';
 import { BackupSchedule } from '../databases/entities/backup-schedule.entity.js';
 import { ProjectVolume } from '../volumes/entities/project-volume.entity.js';
+import { ApiKey } from '../api-keys/entities/api-key.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
   ? {
@@ -29,6 +30,7 @@ export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
         DatabaseBackup,
         BackupSchedule,
         ProjectVolume,
+        ApiKey,
       ],
       migrations: ['src/database/migrations/*.ts'],
       synchronize: false,
@@ -50,6 +52,7 @@ export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
         DatabaseBackup,
         BackupSchedule,
         ProjectVolume,
+        ApiKey,
       ],
       migrations: ['src/database/migrations/*.ts'],
       synchronize: false,

@@ -5,9 +5,14 @@ import { Deployment } from '../deployments/entities/deployment.entity.js';
 import { ProjectsService } from './projects.service.js';
 import { ProjectsController } from './projects.controller.js';
 import { DeploymentModule } from '../deployment/deployment.module.js';
+import { TeamsModule } from '../teams/teams.module.js';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Project, Deployment]), DeploymentModule],
+  imports: [
+    TypeOrmModule.forFeature([Project, Deployment]),
+    DeploymentModule,
+    TeamsModule,
+  ],
   controllers: [ProjectsController],
   providers: [ProjectsService],
   exports: [ProjectsService, TypeOrmModule],

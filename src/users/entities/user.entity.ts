@@ -9,6 +9,8 @@ import {
   type Relation,
 } from 'typeorm';
 import type { Project } from '../../projects/entities/project.entity.js';
+import type { Team } from '../../teams/entities/team.entity.js';
+import type { TeamMember } from '../../teams/entities/team-member.entity.js';
 
 @Entity('users')
 export class User {
@@ -27,6 +29,12 @@ export class User {
 
   @OneToMany('Project', 'user')
   projects: Relation<Project>[];
+
+  @OneToMany('Team', 'owner')
+  ownedTeams?: Relation<Team>[];
+
+  @OneToMany('TeamMember', 'user')
+  teamMemberships?: Relation<TeamMember>[];
 
   @CreateDateColumn({ type: 'timestamp with time zone', name: 'created_at' })
   createdAt: Date;

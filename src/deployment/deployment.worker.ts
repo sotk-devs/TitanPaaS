@@ -265,6 +265,18 @@ export class DeploymentWorker extends WorkerHost {
         emitLog(`Mounting ${volumeMounts.length} persistent volume(s)...\n`);
       }
 
+      const rateLimit =
+        project?.rateLimitEnabled || project?.maxConcurrentConnections
+          ? {
+              enabled: project.rateLimitEnabled ?? false,
+              average: project.rateLimitAverage ?? undefined,
+              burst: project.rateLimitBurst ?? undefined,
+              period: project.rateLimitPeriod ?? undefined,
+              maxConcurrentConnections:
+                project.maxConcurrentConnections ?? undefined,
+            }
+          : undefined;
+
       const runResult = await this.dockerPipeline.runContainer(
         imageTag,
         containerName,
@@ -277,6 +289,7 @@ export class DeploymentWorker extends WorkerHost {
           resourceLimits,
           customDomains: verifiedDomains,
           volumes: volumeMounts,
+          rateLimit,
           onLog: emitLog,
           signal: abortSignal,
         },

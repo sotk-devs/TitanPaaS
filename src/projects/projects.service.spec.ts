@@ -35,6 +35,11 @@ describe('ProjectsService', () => {
     healthcheckExpectedStatus: 200,
     healthcheckTimeout: 5,
     healthcheckRetries: 3,
+    rateLimitEnabled: false,
+    rateLimitAverage: 100,
+    rateLimitBurst: 50,
+    rateLimitPeriod: '1s',
+    maxConcurrentConnections: null,
     userId: mockUserId,
     user: null as any,
     deployments: [],
@@ -370,6 +375,61 @@ describe('ProjectsService', () => {
           customDomains: ['app.example.com'],
         }),
       );
+    });
+
+    it('should recreate container in hot reload with updated rate limit when rateLimit is modified and project has active deployment', async () => {
+      const mockDeployment: Partial<Deployment> = {
+        id: 'deploy-uuid-1',
+        projectId: mockProjectId,
+        status: DeploymentStatus.DEPLOYED,
+        commitSha: 'commit123456',
+        containerId: 'old-container-id',
+      };
+
+      (repository.findOne as jest.Mock<any>).mockResolvedValue({
+        ...mockProject,
+      });
+      (
+        mockDockerPipeline.getContainerStatus as jest.Mock<any>
+      ).mockResolvedValue('running');
+      (deploymentRepository.findOne as jest.Mock<any>).mockResolvedValue(
+        mockDeployment,
+      );
+      (mockDockerPipeline.runContainer as jest.Mock<any>).mockResolvedValue({
+        containerId: 'new-container-id-789',
+        name: 'titan-app-sotk-devs-sample-repo',
+        status: 'running',
+      });
+      (mockDockerPipeline.checkHealth as jest.Mock<any>).mockResolvedValue({
+        status: 'running',
+        healthy: true,
+      });
+
+      const result = await service.update(mockUserId, mockProjectId, {
+        rateLimitEnabled: true,
+        rateLimitAverage: 200,
+        rateLimitBurst: 100,
+        maxConcurrentConnections: 50,
+      });
+
+      expect(mockDockerPipeline.runContainer).toHaveBeenCalledWith(
+        'titan-sotk-devs-sample-repo:abc1234',
+        'titan-app-sotk-devs-sample-repo',
+        3000,
+        { NODE_ENV: 'production' },
+        expect.objectContaining({
+          rateLimit: {
+            enabled: true,
+            average: 200,
+            burst: 100,
+            period: '1s',
+            maxConcurrentConnections: 50,
+          },
+        }),
+      );
+      expect(result.rateLimitEnabled).toBe(true);
+      expect(result.rateLimitAverage).toBe(200);
+      expect(result.maxConcurrentConnections).toBe(50);
     });
 
     it('should not recreate container if project has no previous successful deployment', async () => {

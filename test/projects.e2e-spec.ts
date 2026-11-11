@@ -41,6 +41,11 @@ describe('ProjectsController (e2e)', () => {
         healthcheckExpectedStatus: dto.healthcheckExpectedStatus || 200,
         healthcheckTimeout: dto.healthcheckTimeout || 5,
         healthcheckRetries: dto.healthcheckRetries || 3,
+        rateLimitEnabled: dto.rateLimitEnabled ?? false,
+        rateLimitAverage: dto.rateLimitAverage ?? 100,
+        rateLimitBurst: dto.rateLimitBurst ?? 50,
+        rateLimitPeriod: dto.rateLimitPeriod ?? '1s',
+        maxConcurrentConnections: dto.maxConcurrentConnections ?? null,
         userId,
         user: null as any,
         deployments: [],
@@ -196,6 +201,49 @@ describe('ProjectsController (e2e)', () => {
 
     expect(res.body.name).toBe('updated-project');
     expect(res.body.port).toBe(8080);
+  });
+
+  describe('Rate Limiting & DDoS Protection', () => {
+    const projectId = 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22';
+
+    it('PATCH /projects/:id should reject invalid rateLimitAverage < 1 (400)', async () => {
+      await request(app.getHttpServer())
+        .patch(`/projects/${projectId}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          rateLimitAverage: 0,
+        })
+        .expect(400);
+    });
+
+    it('PATCH /projects/:id should reject invalid rateLimitPeriod format (400)', async () => {
+      await request(app.getHttpServer())
+        .patch(`/projects/${projectId}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          rateLimitPeriod: 'invalid-period',
+        })
+        .expect(400);
+    });
+
+    it('PATCH /projects/:id should successfully configure rate limiting and ddos protection (200)', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/projects/${projectId}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          rateLimitEnabled: true,
+          rateLimitAverage: 200,
+          rateLimitBurst: 100,
+          rateLimitPeriod: '1s',
+          maxConcurrentConnections: 50,
+        })
+        .expect(200);
+
+      expect(res.body.rateLimitEnabled).toBe(true);
+      expect(res.body.rateLimitAverage).toBe(200);
+      expect(res.body.rateLimitBurst).toBe(100);
+      expect(res.body.maxConcurrentConnections).toBe(50);
+    });
   });
 
   it('DELETE /projects/:id should remove project', async () => {

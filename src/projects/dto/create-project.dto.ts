@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -144,4 +145,63 @@ export class CreateProjectDto {
   @Min(1, { message: 'Mínimo 1 reintento' })
   @Max(30, { message: 'Máximo 30 reintentos' })
   healthcheckRetries?: number;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      'Activa o desactiva la protección de rate limiting y DDoS en Traefik',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'rateLimitEnabled debe ser un booleano' })
+  rateLimitEnabled?: boolean;
+
+  @ApiPropertyOptional({
+    example: 100,
+    description: 'Tasa media máxima de peticiones por segundo (req/s)',
+    default: 100,
+  })
+  @IsOptional()
+  @IsInt({ message: 'rateLimitAverage debe ser un entero' })
+  @Min(1, { message: 'El promedio mínimo es 1 petición por segundo' })
+  @Max(100000, {
+    message: 'El promedio máximo es 100000 peticiones por segundo',
+  })
+  rateLimitAverage?: number;
+
+  @ApiPropertyOptional({
+    example: 50,
+    description:
+      'Ráfaga máxima de peticiones permitidas antes de aplicar limitación',
+    default: 50,
+  })
+  @IsOptional()
+  @IsInt({ message: 'rateLimitBurst debe ser un entero' })
+  @Min(1, { message: 'El burst mínimo es 1' })
+  @Max(50000, { message: 'El burst máximo es 50000' })
+  rateLimitBurst?: number;
+
+  @ApiPropertyOptional({
+    example: '1s',
+    description: 'Periodo de cálculo para la tasa media (ej. 1s, 1m)',
+    default: '1s',
+  })
+  @IsOptional()
+  @IsString({ message: 'rateLimitPeriod debe ser una cadena de texto' })
+  @Matches(/^\d+[smh]$/, {
+    message:
+      'rateLimitPeriod debe ser un formato de tiempo válido (ej. 1s, 1m)',
+  })
+  rateLimitPeriod?: string;
+
+  @ApiPropertyOptional({
+    example: 50,
+    description:
+      'Límite de conexiones concurrentes en vuelo (inflight requests) para mitigar DDoS',
+  })
+  @IsOptional()
+  @IsInt({ message: 'maxConcurrentConnections debe ser un entero' })
+  @Min(1, { message: 'El mínimo de conexiones concurrentes es 1' })
+  @Max(10000, { message: 'El máximo de conexiones concurrentes es 10000' })
+  maxConcurrentConnections?: number;
 }

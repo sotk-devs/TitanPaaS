@@ -113,6 +113,23 @@ describe('ProjectsController', () => {
 
       expect(service.create).toHaveBeenCalledWith(mockUser.id, dto);
     });
+
+    it('should forward rate limiting and ddos protection options to service.create', async () => {
+      const dto = {
+        name: 'sample-project',
+        repositoryUrl: 'https://github.com/sotk-devs/sample-repo.git',
+        repositoryName: 'sotk-devs/sample-repo',
+        rateLimitEnabled: true,
+        rateLimitAverage: 150,
+        rateLimitBurst: 75,
+        rateLimitPeriod: '1s',
+        maxConcurrentConnections: 25,
+      };
+
+      await controller.create(mockReq, dto);
+
+      expect(service.create).toHaveBeenCalledWith(mockUser.id, dto);
+    });
   });
 
   describe('findAll', () => {

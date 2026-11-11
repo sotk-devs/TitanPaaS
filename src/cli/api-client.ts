@@ -164,4 +164,34 @@ export class TitanApiClient {
       { method: 'GET' },
     );
   }
+
+  async importEnv(
+    projectId: string,
+    content: string,
+    mode: 'merge' | 'replace' = 'merge',
+  ): Promise<{
+    message: string;
+    mode: string;
+    importedCount: number;
+    totalCount: number;
+    variables: Record<string, string>;
+  }> {
+    return this.request(`/projects/${projectId}/env/import`, {
+      method: 'POST',
+      body: JSON.stringify({ content, mode }),
+    });
+  }
+
+  async exportEnv(
+    projectId: string,
+    format: 'json' | 'text' = 'json',
+  ): Promise<{
+    raw: string;
+    variables: Record<string, string>;
+    count: number;
+  }> {
+    return this.request(`/projects/${projectId}/env/export?format=${format}`, {
+      method: 'GET',
+    });
+  }
 }

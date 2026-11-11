@@ -4,6 +4,9 @@ import { Project } from '../projects/entities/project.entity.js';
 import { Deployment } from '../deployments/entities/deployment.entity.js';
 import { NotificationWebhook } from '../notifications/entities/notification-webhook.entity.js';
 import { CustomDomain } from '../domains/entities/custom-domain.entity.js';
+import { ProjectDatabase } from '../databases/entities/project-database.entity.js';
+import { DatabaseBackup } from '../databases/entities/database-backup.entity.js';
+import { BackupSchedule } from '../databases/entities/backup-schedule.entity.js';
 import { ProjectVolume } from '../volumes/entities/project-volume.entity.js';
 
 export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
@@ -19,6 +22,9 @@ export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
       Deployment,
       NotificationWebhook,
       CustomDomain,
+      ProjectDatabase,
+      DatabaseBackup,
+      BackupSchedule,
       ProjectVolume,
     ],
     migrations: ['dist/database/migrations/*.js'],

@@ -66,6 +66,22 @@ describe('ProjectsController', () => {
         status: 'running',
         message: 'Contenedor reiniciado exitosamente.',
       }),
+      importEnv: jest.fn<any>().mockResolvedValue({
+        message: 'Variables de entorno importadas exitosamente',
+        mode: 'merge',
+        importedCount: 2,
+        totalCount: 3,
+        variables: {
+          NODE_ENV: 'production',
+          PORT: '8080',
+          DB_HOST: 'localhost',
+        },
+      }),
+      exportEnv: jest.fn<any>().mockResolvedValue({
+        raw: 'NODE_ENV=production\nPORT=3000\n',
+        variables: { NODE_ENV: 'production', PORT: '3000' },
+        count: 2,
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -230,6 +246,76 @@ describe('ProjectsController', () => {
           status: 'running',
           message: 'Contenedor reiniciado exitosamente.',
         });
+      });
+    });
+
+    describe('importEnv', () => {
+      it('should call service.importEnv with user ID, project ID, and dto', async () => {
+        const dto = {
+          content: 'PORT=8080\nDB_HOST=localhost',
+        };
+
+        const result = await controller.importEnv(
+          mockReq,
+          mockProject.id,
+          dto as any,
+        );
+
+        expect(service.importEnv).toHaveBeenCalledWith(
+          mockUser.id,
+          mockProject.id,
+          dto,
+        );
+        expect(result).toEqual({
+          message: 'Variables de entorno importadas exitosamente',
+          mode: 'merge',
+          importedCount: 2,
+          totalCount: 3,
+          variables: {
+            NODE_ENV: 'production',
+            PORT: '8080',
+            DB_HOST: 'localhost',
+          },
+        });
+      });
+    });
+
+    describe('exportEnv', () => {
+      it('should return JSON payload by default', async () => {
+        const result = await controller.exportEnv(mockReq, mockProject.id);
+
+        expect(service.exportEnv).toHaveBeenCalledWith(
+          mockUser.id,
+          mockProject.id,
+        );
+        expect(result).toEqual({
+          raw: 'NODE_ENV=production\nPORT=3000\n',
+          variables: { NODE_ENV: 'production', PORT: '3000' },
+          count: 2,
+        });
+      });
+
+      it('should set headers and return raw text string when format is text or raw', async () => {
+        const mockRes = {
+          setHeader: jest.fn(),
+        };
+
+        const result = await controller.exportEnv(
+          mockReq,
+          mockProject.id,
+          'text',
+          mockRes as any,
+        );
+
+        expect(mockRes.setHeader).toHaveBeenCalledWith(
+          'Content-Type',
+          'text/plain; charset=utf-8',
+        );
+        expect(mockRes.setHeader).toHaveBeenCalledWith(
+          'Content-Disposition',
+          'attachment; filename=".env"',
+        );
+        expect(result).toBe('NODE_ENV=production\nPORT=3000\n');
       });
     });
   });

@@ -92,6 +92,42 @@ describe('ProjectsController (e2e)', () => {
         message: `Proyecto "${project.name}" eliminado exitosamente`,
       });
     }),
+    importEnv: jest.fn((userId: string, id: string, dto: any) => {
+      const project = mockProjectStore.get(id);
+      if (!project || project.userId !== userId) {
+        const error = new Error(`Proyecto con ID "${id}" no encontrado`);
+        (error as any).status = 404;
+        throw error;
+      }
+      return Promise.resolve({
+        message: 'Variables de entorno importadas exitosamente',
+        mode: dto.mode || 'merge',
+        importedCount: 2,
+        totalCount: 3,
+        variables: {
+          PORT: '8080',
+          NODE_ENV: 'production',
+          DATABASE_URL: 'postgres://localhost:5432',
+        },
+      });
+    }),
+    exportEnv: jest.fn((userId: string, id: string) => {
+      const project = mockProjectStore.get(id);
+      if (!project || project.userId !== userId) {
+        const error = new Error(`Proyecto con ID "${id}" no encontrado`);
+        (error as any).status = 404;
+        throw error;
+      }
+      return Promise.resolve({
+        raw: 'DATABASE_URL="postgres://localhost:5432"\nNODE_ENV=production\nPORT=8080\n',
+        variables: {
+          DATABASE_URL: 'postgres://localhost:5432',
+          NODE_ENV: 'production',
+          PORT: '8080',
+        },
+        count: 3,
+      });
+    }),
   };
 
   const mockUsersService = {
@@ -243,6 +279,69 @@ describe('ProjectsController (e2e)', () => {
       expect(res.body.rateLimitAverage).toBe(200);
       expect(res.body.rateLimitBurst).toBe(100);
       expect(res.body.maxConcurrentConnections).toBe(50);
+    });
+  });
+
+  describe('Bulk .env import and export', () => {
+    const projectId = 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22';
+
+    it('POST /projects/:id/env/import should reject without auth token (401)', async () => {
+      await request(app.getHttpServer())
+        .post(`/projects/${projectId}/env/import`)
+        .send({ content: 'PORT=3000' })
+        .expect(401);
+    });
+
+    it('POST /projects/:id/env/import should reject empty content (400)', async () => {
+      await request(app.getHttpServer())
+        .post(`/projects/${projectId}/env/import`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ content: '' })
+        .expect(400);
+    });
+
+    it('POST /projects/:id/env/import should successfully import .env content (200)', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/projects/${projectId}/env/import`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          content: 'PORT=8080\nDATABASE_URL=postgres://localhost:5432\n',
+          mode: 'merge',
+        })
+        .expect(200);
+
+      expect(res.body.message).toContain('importadas exitosamente');
+      expect(res.body.mode).toBe('merge');
+      expect(res.body.importedCount).toBe(2);
+      expect(res.body.variables).toHaveProperty('PORT', '8080');
+    });
+
+    it('GET /projects/:id/env/export should reject without auth token (401)', async () => {
+      await request(app.getHttpServer())
+        .get(`/projects/${projectId}/env/export`)
+        .expect(401);
+    });
+
+    it('GET /projects/:id/env/export should return structured json by default (200)', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/projects/${projectId}/env/export`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(res.body).toHaveProperty('raw');
+      expect(res.body).toHaveProperty('variables');
+      expect(res.body.count).toBe(3);
+    });
+
+    it('GET /projects/:id/env/export?format=text should return raw text/plain download (200)', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/projects/${projectId}/env/export?format=text`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(res.header['content-type']).toContain('text/plain');
+      expect(res.text).toContain('DATABASE_URL');
+      expect(res.text).toContain('PORT=8080');
     });
   });
 

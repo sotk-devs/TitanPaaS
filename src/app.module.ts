@@ -19,6 +19,7 @@ import { DeploymentsModule } from './deployments/deployments.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { TerminalModule } from './terminal/terminal.module.js';
 import { DomainsModule } from './domains/domains.module.js';
+import { DatabasesModule } from './databases/databases.module.js';
 import { VolumesModule } from './volumes/volumes.module.js';
 import { MaintenanceModule } from './maintenance/maintenance.module.js';
 import { getTypeOrmConfig } from './database/database.config.js';
@@ -49,6 +50,7 @@ const databaseModules =
         NotificationsModule,
         TerminalModule,
         DomainsModule,
+        DatabasesModule,
         VolumesModule,
         MaintenanceModule,
       ]

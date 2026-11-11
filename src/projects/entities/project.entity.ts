@@ -14,6 +14,7 @@ import type { User } from '../../users/entities/user.entity.js';
 import type { Deployment } from '../../deployments/entities/deployment.entity.js';
 import type { NotificationWebhook } from '../../notifications/entities/notification-webhook.entity.js';
 import type { CustomDomain } from '../../domains/entities/custom-domain.entity.js';
+import type { ProjectDatabase } from '../../databases/entities/project-database.entity.js';
 import type { ProjectVolume } from '../../volumes/entities/project-volume.entity.js';
 import { EncryptionTransformer } from '../../common/encryption/encryption.transformer.js';
 
@@ -138,6 +139,9 @@ export class Project {
 
   @OneToMany('CustomDomain', 'project')
   customDomains: Relation<CustomDomain>[];
+
+  @OneToMany('ProjectDatabase', 'project')
+  databases?: Relation<ProjectDatabase>[];
 
   @OneToMany('ProjectVolume', 'project')
   volumes?: Relation<ProjectVolume>[];

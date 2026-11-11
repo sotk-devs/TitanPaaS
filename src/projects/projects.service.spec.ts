@@ -655,5 +655,148 @@ describe('ProjectsService', () => {
         ).rejects.toThrow(BadRequestException);
       });
     });
+
+    describe('importEnv', () => {
+      it('should import env variables in merge mode and preserve untouched existing keys', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue({
+          ...mockProject,
+          envVariables: {
+            EXISTING_A: 'val_a',
+            NODE_ENV: 'development',
+          },
+        });
+        (
+          mockDockerPipeline.getContainerStatus as jest.Mock<any>
+        ).mockResolvedValue('not_found');
+
+        const result = await service.importEnv(mockUserId, mockProjectId, {
+          content: 'NODE_ENV=production\nPORT=8080\nNEW_VAR="new value"',
+        });
+
+        expect(result.mode).toBe('merge');
+        expect(result.importedCount).toBe(3);
+        expect(result.totalCount).toBe(4);
+        expect(result.variables).toEqual({
+          EXISTING_A: 'val_a',
+          NODE_ENV: 'production',
+          PORT: '8080',
+          NEW_VAR: 'new value',
+        });
+        expect(repository.save).toHaveBeenCalled();
+      });
+
+      it('should import env variables in replace mode discarding previous keys', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue({
+          ...mockProject,
+          envVariables: {
+            OLD_KEY_1: 'val1',
+            OLD_KEY_2: 'val2',
+          },
+        });
+        (
+          mockDockerPipeline.getContainerStatus as jest.Mock<any>
+        ).mockResolvedValue('not_found');
+
+        const result = await service.importEnv(mockUserId, mockProjectId, {
+          content: 'REPLACED_KEY=active\nPORT=3000',
+          mode: 'replace' as any,
+        });
+
+        expect(result.mode).toBe('replace');
+        expect(result.importedCount).toBe(2);
+        expect(result.totalCount).toBe(2);
+        expect(result.variables).toEqual({
+          REPLACED_KEY: 'active',
+          PORT: '3000',
+        });
+        expect(result.variables.OLD_KEY_1).toBeUndefined();
+      });
+
+      it('should throw BadRequestException if content contains invalid key or format', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue(mockProject);
+
+        await expect(
+          service.importEnv(mockUserId, mockProjectId, {
+            content: '123_INVALID=value',
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('should recreate container in hot reload when imported into running deployed project', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue(mockProject);
+        (
+          mockDockerPipeline.getContainerStatus as jest.Mock<any>
+        ).mockResolvedValue('running');
+        (deploymentRepository.findOne as jest.Mock<any>).mockResolvedValue({
+          id: 'deploy-uuid-1',
+          commitSha: 'commit123',
+          status: DeploymentStatus.DEPLOYED,
+        });
+        (mockDockerPipeline.runContainer as jest.Mock<any>).mockResolvedValue({
+          containerId: 'new-container-id',
+          name: 'titan-app-sotk-devs-sample-repo',
+          status: 'running',
+        });
+
+        await service.importEnv(mockUserId, mockProjectId, {
+          content: 'PORT=9000\nAPI_URL=https://api.example.com',
+        });
+
+        expect(mockDockerPipeline.runContainer).toHaveBeenCalledWith(
+          'titan-sotk-devs-sample-repo:abc1234',
+          'titan-app-sotk-devs-sample-repo',
+          3000,
+          {
+            NODE_ENV: 'production',
+            PORT: '9000',
+            API_URL: 'https://api.example.com',
+          },
+          expect.objectContaining({
+            subdomain: 'sample-project',
+          }),
+        );
+      });
+    });
+
+    describe('exportEnv', () => {
+      it('should export environment variables formatted as .env text', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue({
+          ...mockProject,
+          envVariables: {
+            PORT: '3000',
+            APP_NAME: 'Titan PaaS',
+          },
+        });
+
+        const result = await service.exportEnv(mockUserId, mockProjectId);
+
+        expect(result.count).toBe(2);
+        expect(result.variables).toEqual({
+          PORT: '3000',
+          APP_NAME: 'Titan PaaS',
+        });
+        expect(result.raw).toBe('APP_NAME="Titan PaaS"\nPORT=3000\n');
+      });
+
+      it('should return empty raw string when no variables exist', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue({
+          ...mockProject,
+          envVariables: {},
+        });
+
+        const result = await service.exportEnv(mockUserId, mockProjectId);
+
+        expect(result.count).toBe(0);
+        expect(result.raw).toBe('');
+      });
+
+      it('should throw NotFoundException if project is not found', async () => {
+        (repository.findOne as jest.Mock<any>).mockResolvedValue(null);
+
+        await expect(
+          service.exportEnv(mockUserId, 'non-existent-id'),
+        ).rejects.toThrow(NotFoundException);
+      });
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import * as readline from 'node:readline';
+import * as fs from 'node:fs';
 import { CliConfigService } from './config.service.js';
 import { TitanApiClient } from './api-client.js';
 
@@ -334,6 +335,106 @@ export function createCli(
         }
       } catch (err) {
         console.error(`Error retrieving logs: ${(err as Error).message}`);
+        process.exitCode = 1;
+      }
+    });
+
+  // 7. titan env:import [projectId]
+  program
+    .command('env:import [projectId]')
+    .description('Import environment variables from a .env file into a project')
+    .option(
+      '-f, --file <filePath>',
+      'Path to local .env file (default: .env)',
+      '.env',
+    )
+    .option('-m, --mode <mode>', 'Import mode: merge or replace', 'merge')
+    .action(async (projectId, options) => {
+      try {
+        const config = configService.getConfig();
+        if (!config.token) {
+          console.error("Authentication required. Run 'titan login' first.");
+          process.exitCode = 1;
+          return;
+        }
+
+        const client = getClient();
+        const targetId = projectId || configService.getLocalProjectId();
+
+        if (!targetId) {
+          console.error(
+            'Error: Please specify a project ID or run inside a directory with .titanrc',
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        const filePath = options.file;
+        if (!fs.existsSync(filePath)) {
+          console.error(`Error: File not found at ${filePath}`);
+          process.exitCode = 1;
+          return;
+        }
+
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const mode = options.mode === 'replace' ? 'replace' : 'merge';
+
+        console.log(
+          `Importing variables from ${filePath} to project ${targetId} (mode: ${mode})...`,
+        );
+        const result = await client.importEnv(targetId, content, mode);
+
+        console.log(result.message);
+        console.log(`Imported: ${result.importedCount} variable(s)`);
+        console.log(`Total configured: ${result.totalCount} variable(s)`);
+      } catch (err) {
+        console.error(`Import failed: ${(err as Error).message}`);
+        process.exitCode = 1;
+      }
+    });
+
+  // 8. titan env:export [projectId]
+  program
+    .command('env:export [projectId]')
+    .description('Export environment variables of a project in .env format')
+    .option(
+      '-o, --output <filePath>',
+      'Output file path (prints to stdout if not specified)',
+    )
+    .action(async (projectId, options) => {
+      try {
+        const config = configService.getConfig();
+        if (!config.token) {
+          console.error("Authentication required. Run 'titan login' first.");
+          process.exitCode = 1;
+          return;
+        }
+
+        const client = getClient();
+        const targetId = projectId || configService.getLocalProjectId();
+
+        if (!targetId) {
+          console.error(
+            'Error: Please specify a project ID or run inside a directory with .titanrc',
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        const result = await client.exportEnv(targetId, 'json');
+
+        if (options.output) {
+          fs.writeFileSync(options.output, result.raw, 'utf-8');
+          console.log(
+            `Exported ${result.count} variable(s) to ${options.output}`,
+          );
+        } else {
+          process.stdout.write(
+            result.raw || '# No environment variables configured\n',
+          );
+        }
+      } catch (err) {
+        console.error(`Export failed: ${(err as Error).message}`);
         process.exitCode = 1;
       }
     });

@@ -33,6 +33,8 @@ describe('Titan PaaS CLI', () => {
       getDeployment: jest.fn<any>(),
       triggerDeploy: jest.fn<any>(),
       getLogsDownload: jest.fn<any>(),
+      importEnv: jest.fn<any>(),
+      exportEnv: jest.fn<any>(),
     } as any;
 
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -449,6 +451,130 @@ describe('Titan PaaS CLI', () => {
         expect(mockApiClient.getLogsDownload).toHaveBeenCalledWith(
           'latest-dep-of-project',
           'txt',
+        );
+      });
+    });
+
+    describe('titan env:import', () => {
+      it('should fail if user is not authenticated', async () => {
+        const cli = createCli(configService, mockApiClient);
+        await cli.parseAsync(['node', 'titan', 'env:import', 'proj-123']);
+
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          expect.stringContaining(
+            "Authentication required. Run 'titan login' first.",
+          ),
+        );
+        expect(process.exitCode).toBe(1);
+      });
+
+      it('should import env file and call client.importEnv', async () => {
+        configService.saveConfig({ token: 'jwt-token-123' });
+        const testEnvPath = join(tempDir, '.env.production');
+        writeFileSync(testEnvPath, 'PORT=8080\nNODE_ENV=production\n', 'utf-8');
+
+        mockApiClient.importEnv.mockResolvedValue({
+          message: 'Variables de entorno importadas exitosamente',
+          mode: 'merge',
+          importedCount: 2,
+          totalCount: 2,
+          variables: { PORT: '8080', NODE_ENV: 'production' },
+        });
+
+        const cli = createCli(configService, mockApiClient);
+        await cli.parseAsync([
+          'node',
+          'titan',
+          'env:import',
+          'proj-123',
+          '-f',
+          testEnvPath,
+          '-m',
+          'merge',
+        ]);
+
+        expect(mockApiClient.importEnv).toHaveBeenCalledWith(
+          'proj-123',
+          'PORT=8080\nNODE_ENV=production\n',
+          'merge',
+        );
+        expect(consoleLogSpy).toHaveBeenCalledWith(
+          'Variables de entorno importadas exitosamente',
+        );
+        expect(consoleLogSpy).toHaveBeenCalledWith('Imported: 2 variable(s)');
+      });
+
+      it('should report error if file does not exist', async () => {
+        configService.saveConfig({ token: 'jwt-token-123' });
+
+        const cli = createCli(configService, mockApiClient);
+        await cli.parseAsync([
+          'node',
+          'titan',
+          'env:import',
+          'proj-123',
+          '-f',
+          'non-existent.env',
+        ]);
+
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('File not found'),
+        );
+        expect(process.exitCode).toBe(1);
+      });
+    });
+
+    describe('titan env:export', () => {
+      it('should export env to stdout by default', async () => {
+        configService.saveConfig({ token: 'jwt-token-123' });
+        const stdoutWriteSpy = jest
+          .spyOn(process.stdout, 'write')
+          .mockImplementation(() => true);
+
+        mockApiClient.exportEnv.mockResolvedValue({
+          raw: 'PORT=3000\nNODE_ENV=production\n',
+          variables: { PORT: '3000', NODE_ENV: 'production' },
+          count: 2,
+        });
+
+        const cli = createCli(configService, mockApiClient);
+        await cli.parseAsync(['node', 'titan', 'env:export', 'proj-123']);
+
+        expect(mockApiClient.exportEnv).toHaveBeenCalledWith(
+          'proj-123',
+          'json',
+        );
+        expect(stdoutWriteSpy).toHaveBeenCalledWith(
+          'PORT=3000\nNODE_ENV=production\n',
+        );
+
+        stdoutWriteSpy.mockRestore();
+      });
+
+      it('should export env to file when -o option is provided', async () => {
+        configService.saveConfig({ token: 'jwt-token-123' });
+        const exportFilePath = join(tempDir, 'exported.env');
+
+        mockApiClient.exportEnv.mockResolvedValue({
+          raw: 'PORT=3000\nNODE_ENV=production\n',
+          variables: { PORT: '3000', NODE_ENV: 'production' },
+          count: 2,
+        });
+
+        const cli = createCli(configService, mockApiClient);
+        await cli.parseAsync([
+          'node',
+          'titan',
+          'env:export',
+          'proj-123',
+          '-o',
+          exportFilePath,
+        ]);
+
+        expect(consoleLogSpy).toHaveBeenCalledWith(
+          expect.stringContaining(
+            `Exported 2 variable(s) to ${exportFilePath}`,
+          ),
         );
       });
     });

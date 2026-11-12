@@ -33,6 +33,13 @@ export class Project {
   @Index()
   repositoryName: string;
 
+  @Column({ type: 'varchar', nullable: true, name: 'github_repo_id' })
+  @Index()
+  githubRepoId?: string | null;
+
+  @Column({ type: 'boolean', default: false, name: 'is_private' })
+  isPrivate?: boolean;
+
   @Column({ type: 'varchar', default: 'main' })
   branch: string;
 

@@ -85,6 +85,28 @@ export class Project {
   })
   healthcheckRetries: number;
 
+  @Column({
+    type: 'boolean',
+    default: false,
+    name: 'is_cluster_enabled',
+  })
+  isClusterEnabled: boolean;
+
+  @Column({
+    type: 'int',
+    default: 1,
+    name: 'cluster_replicas',
+  })
+  clusterReplicas: number;
+
+  @Column({
+    type: 'varchar',
+    nullable: true,
+    name: 'cluster_placement',
+    default: null,
+  })
+  clusterPlacement: string | null;
+
   @Column({ type: 'uuid', name: 'user_id' })
   @Index()
   userId: string;

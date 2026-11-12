@@ -26,6 +26,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       id: user.id,
       email: user.email,
       name: user.name,
+      githubId: user.githubId ?? null,
+      githubUsername: user.githubUsername ?? null,
+      avatarUrl: user.avatarUrl ?? null,
+      githubConnected: Boolean(user.githubId),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

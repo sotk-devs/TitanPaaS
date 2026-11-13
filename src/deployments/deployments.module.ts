@@ -9,6 +9,7 @@ import { DEPLOY_QUEUE } from '../webhooks/webhooks.constants.js';
 import { DeploymentModule } from '../deployment/deployment.module.js';
 import { LogsModule } from '../logs/logs.module.js';
 import { TeamsModule } from '../teams/teams.module.js';
+import { AuditModule } from '../audit/audit.module.js';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { TeamsModule } from '../teams/teams.module.js';
     DeploymentModule,
     LogsModule,
     TeamsModule,
+    AuditModule,
   ],
   controllers: [DeploymentsController],
   providers: [DeploymentsService],

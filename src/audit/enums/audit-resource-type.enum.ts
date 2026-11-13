@@ -1,0 +1,5 @@
+export enum AuditResourceType {
+  PROJECT = 'PROJECT',
+  DEPLOYMENT = 'DEPLOYMENT',
+  ENVIRONMENT = 'ENVIRONMENT',
+}

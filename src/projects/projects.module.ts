@@ -6,12 +6,14 @@ import { ProjectsService } from './projects.service.js';
 import { ProjectsController } from './projects.controller.js';
 import { DeploymentModule } from '../deployment/deployment.module.js';
 import { TeamsModule } from '../teams/teams.module.js';
+import { AuditModule } from '../audit/audit.module.js';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Project, Deployment]),
     DeploymentModule,
     TeamsModule,
+    AuditModule,
   ],
   controllers: [ProjectsController],
   providers: [ProjectsService],

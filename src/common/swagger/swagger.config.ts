@@ -69,6 +69,11 @@ export const SWAGGER_TAGS: ReadonlyArray<{
     name: 'Webhooks',
     description: 'Recepción de webhooks de GitHub (ping y push)',
   },
+  {
+    name: 'Audit Logs',
+    description:
+      'Registro y trazabilidad de acciones sobre proyectos, variables y despliegues',
+  },
 ];
 
 export function createSwaggerConfig() {

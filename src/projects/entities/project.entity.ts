@@ -16,6 +16,7 @@ import type { NotificationWebhook } from '../../notifications/entities/notificat
 import type { CustomDomain } from '../../domains/entities/custom-domain.entity.js';
 import type { ProjectDatabase } from '../../databases/entities/project-database.entity.js';
 import type { ProjectVolume } from '../../volumes/entities/project-volume.entity.js';
+import type { Team } from '../../teams/entities/team.entity.js';
 import { EncryptionTransformer } from '../../common/encryption/encryption.transformer.js';
 
 @Entity('projects')
@@ -92,13 +93,43 @@ export class Project {
   })
   healthcheckRetries: number;
 
+  @Column({
+    type: 'boolean',
+    default: false,
+    name: 'is_cluster_enabled',
+  })
+  isClusterEnabled: boolean;
+
+  @Column({
+    type: 'int',
+    default: 1,
+    name: 'cluster_replicas',
+  })
+  clusterReplicas: number;
+
+  @Column({
+    type: 'varchar',
+    nullable: true,
+    name: 'cluster_placement',
+    default: null,
+  })
+  clusterPlacement: string | null;
+
   @Column({ type: 'uuid', name: 'user_id' })
   @Index()
   userId: string;
 
+  @Column({ type: 'uuid', nullable: true, name: 'team_id', default: null })
+  @Index()
+  teamId?: string | null;
+
   @ManyToOne('User', 'projects', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: Relation<User>;
+
+  @ManyToOne('Team', 'projects', { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'team_id' })
+  team?: Relation<Team> | null;
 
   @OneToMany('Deployment', 'project')
   deployments: Relation<Deployment>[];

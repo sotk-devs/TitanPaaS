@@ -5,6 +5,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   Min,
@@ -144,4 +145,12 @@ export class CreateProjectDto {
   @Min(1, { message: 'Mínimo 1 reintento' })
   @Max(30, { message: 'Máximo 30 reintentos' })
   healthcheckRetries?: number;
+
+  @ApiPropertyOptional({
+    example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+    description: 'ID opcional del equipo/organización propietario del proyecto',
+  })
+  @IsOptional()
+  @IsUUID('4', { message: 'teamId debe ser un UUID válido' })
+  teamId?: string;
 }

@@ -21,6 +21,8 @@ import { DEPLOY_QUEUE, DEPLOY_JOB } from '../webhooks/webhooks.constants.js';
 import type { DeploymentJobData } from '../webhooks/interfaces/github-payload.interface.js';
 import { DockerPipelineService } from '../deployment/docker-pipeline.service.js';
 import { LogsGateway } from '../logs/logs.gateway.js';
+import { TeamsService } from '../teams/teams.service.js';
+import { TeamRole } from '../teams/enums/team-role.enum.js';
 
 export interface DownloadLogsResult {
   filename: string;
@@ -52,22 +54,85 @@ export class DeploymentsService {
     private readonly dockerPipeline?: DockerPipelineService,
     @Optional()
     private readonly logsGateway?: LogsGateway,
+    @Optional()
+    private readonly teamsService?: TeamsService,
   ) {}
+
+  private async findProjectWithAccess(
+    userId: string,
+    projectId: string,
+    allowedTeamRoles?: TeamRole[],
+  ): Promise<Project> {
+    if (!this.teamsService) {
+      const project = await this.projectRepository.findOne({
+        where: { id: projectId, userId },
+      });
+
+      if (!project) {
+        throw new NotFoundException(
+          `Proyecto #${projectId} no encontrado o no pertenece al usuario autenticado.`,
+        );
+      }
+
+      return project;
+    }
+
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+    });
+
+    await this.teamsService.assertProjectAccess(
+      userId,
+      project,
+      allowedTeamRoles,
+      `Proyecto #${projectId} no encontrado o no pertenece al usuario autenticado.`,
+    );
+
+    return project!;
+  }
+
+  private async findDeploymentWithAccess(
+    userId: string,
+    id: string,
+    allowedTeamRoles?: TeamRole[],
+  ): Promise<Deployment> {
+    const deployment = await this.deploymentRepository.findOne({
+      where: { id },
+      relations: ['project'],
+    });
+
+    if (!this.teamsService) {
+      if (!deployment || deployment.project?.userId !== userId) {
+        throw new NotFoundException(
+          `Despliegue #${id} no encontrado o no pertenece a un proyecto del usuario autenticado.`,
+        );
+      }
+
+      return deployment;
+    }
+
+    if (!deployment || !deployment.project) {
+      throw new NotFoundException(
+        `Despliegue #${id} no encontrado o no pertenece a un proyecto del usuario autenticado.`,
+      );
+    }
+
+    await this.teamsService.assertProjectAccess(
+      userId,
+      deployment.project,
+      allowedTeamRoles,
+      `Despliegue #${id} no encontrado o no pertenece a un proyecto del usuario autenticado.`,
+    );
+
+    return deployment;
+  }
 
   async findByProject(
     userId: string,
     projectId: string,
     query?: DeploymentPaginationQueryDto,
   ): Promise<PaginatedDeployments> {
-    const project = await this.projectRepository.findOne({
-      where: { id: projectId, userId },
-    });
-
-    if (!project) {
-      throw new NotFoundException(
-        `Proyecto #${projectId} no encontrado o no pertenece al usuario autenticado.`,
-      );
-    }
+    await this.findProjectWithAccess(userId, projectId);
 
     const page = Math.max(1, query?.page ?? 1);
     const limit = Math.min(100, Math.max(1, query?.limit ?? 20));
@@ -90,18 +155,7 @@ export class DeploymentsService {
   }
 
   async findOne(userId: string, id: string): Promise<Deployment> {
-    const deployment = await this.deploymentRepository.findOne({
-      where: { id },
-      relations: ['project'],
-    });
-
-    if (!deployment || deployment.project?.userId !== userId) {
-      throw new NotFoundException(
-        `Despliegue #${id} no encontrado o no pertenece a un proyecto del usuario autenticado.`,
-      );
-    }
-
-    return deployment;
+    return this.findDeploymentWithAccess(userId, id);
   }
 
   async triggerManualDeploy(
@@ -110,15 +164,11 @@ export class DeploymentsService {
     dto?: TriggerDeployDto,
     user?: { id?: string; email?: string; name?: string },
   ): Promise<Deployment & { jobId?: string }> {
-    const project = await this.projectRepository.findOne({
-      where: { id: projectId, userId },
-    });
-
-    if (!project) {
-      throw new NotFoundException(
-        `Proyecto #${projectId} no encontrado o no pertenece al usuario autenticado.`,
-      );
-    }
+    const project = await this.findProjectWithAccess(userId, projectId, [
+      TeamRole.OWNER,
+      TeamRole.ADMIN,
+      TeamRole.DEVELOPER,
+    ]);
 
     const branch = dto?.branch?.trim() || project.branch || 'main';
     const commitSha = dto?.commitSha?.trim() || 'HEAD';
@@ -174,16 +224,11 @@ export class DeploymentsService {
   }
 
   async cancelDeployment(userId: string, id: string): Promise<Deployment> {
-    const deployment = await this.deploymentRepository.findOne({
-      where: { id },
-      relations: ['project'],
-    });
-
-    if (!deployment || deployment.project?.userId !== userId) {
-      throw new NotFoundException(
-        `Despliegue #${id} no encontrado o no pertenece a un proyecto del usuario autenticado.`,
-      );
-    }
+    const deployment = await this.findDeploymentWithAccess(userId, id, [
+      TeamRole.OWNER,
+      TeamRole.ADMIN,
+      TeamRole.DEVELOPER,
+    ]);
 
     const nonCancellableStatuses = [
       DeploymentStatus.DEPLOYED,
@@ -283,16 +328,11 @@ export class DeploymentsService {
     dto?: RollbackDeployDto,
     user?: { id?: string; email?: string; name?: string },
   ): Promise<Deployment & { jobId?: string }> {
-    const deployment = await this.deploymentRepository.findOne({
-      where: { id },
-      relations: ['project'],
-    });
-
-    if (!deployment || deployment.project?.userId !== userId) {
-      throw new NotFoundException(
-        `Despliegue #${id} no encontrado o no pertenece a un proyecto del usuario autenticado.`,
-      );
-    }
+    const deployment = await this.findDeploymentWithAccess(userId, id, [
+      TeamRole.OWNER,
+      TeamRole.ADMIN,
+      TeamRole.DEVELOPER,
+    ]);
 
     const project = deployment.project;
 

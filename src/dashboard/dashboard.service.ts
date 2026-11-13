@@ -942,17 +942,10 @@ export class DashboardService {
     }
 
     // GitHub OAuth
-    async function handleGithubLogin() {
-      try {
-        const res = await fetch('/auth/github/url');
-        if (!res.ok) throw new Error('GitHub OAuth no está configurado');
-        const data = await res.json();
-        if (data.url) {
-          window.location.href = data.url;
-        }
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
+    function handleGithubLogin() {
+      const redirectUri = window.location.origin + '/dashboard';
+      window.location.href =
+        '/auth/github?redirectUri=' + encodeURIComponent(redirectUri);
     }
 
     // Logout
@@ -973,6 +966,16 @@ export class DashboardService {
 
     // Init Session
     async function initSession() {
+      // Check if redirected from GitHub OAuth callback
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlToken = urlParams.get('token');
+      if (urlToken) {
+        currentToken = urlToken;
+        localStorage.setItem('titan_paas_token', currentToken);
+        window.history.replaceState({}, document.title, window.location.pathname);
+        showToast('Sesión iniciada con GitHub');
+      }
+
       if (!currentToken) {
         document.getElementById('authSection').style.display = 'block';
         document.getElementById('dashboardSection').style.display = 'none';

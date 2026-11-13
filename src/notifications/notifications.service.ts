@@ -17,6 +17,7 @@ import {
   DeploymentNotificationPayload,
   WebhookDeliveryResult,
 } from './interfaces/notification-payload.interface.js';
+import { EmailService } from './services/email.service.js';
 
 @Injectable()
 export class NotificationsService {
@@ -34,7 +35,13 @@ export class NotificationsService {
     @Optional()
     @InjectRepository(Project)
     private readonly projectRepository?: Repository<Project>,
+    @Optional()
+    private readonly emailService?: EmailService,
   ) {}
+
+  getEmailService(): EmailService | undefined {
+    return this.emailService;
+  }
 
   private async verifyProjectOwnership(
     userId: string,
@@ -180,7 +187,16 @@ export class NotificationsService {
     event: NotificationEvent,
     payload: Omit<DeploymentNotificationPayload, 'event' | 'timestamp'>,
   ): Promise<WebhookDeliveryResult[]> {
-    if (!this.webhookRepository || !payload.projectId) {
+    if (!payload.projectId) {
+      return [];
+    }
+
+    // Despachar alerta por correo al propietario si el despliegue fallo
+    if (event === NotificationEvent.DEPLOY_FAILED) {
+      await this.handleDeploymentFailureEmail(payload);
+    }
+
+    if (!this.webhookRepository) {
       return [];
     }
 
@@ -222,6 +238,57 @@ export class NotificationsService {
         `Error al despachar notificaciones para proyecto ${payload.projectId}: ${(error as Error).message}`,
       );
       return [];
+    }
+  }
+
+  private async handleDeploymentFailureEmail(
+    payload: Omit<DeploymentNotificationPayload, 'event' | 'timestamp'>,
+  ): Promise<void> {
+    if (!this.emailService) {
+      return;
+    }
+
+    try {
+      let recipientEmail = payload.userEmail;
+      let recipientName = payload.userName;
+
+      if (!recipientEmail && this.projectRepository) {
+        const project = await this.projectRepository.findOne({
+          where: { id: payload.projectId },
+          relations: ['user'],
+        });
+        if (project?.user?.email) {
+          recipientEmail = project.user.email;
+          recipientName = project.user.name;
+        }
+      }
+
+      if (!recipientEmail) {
+        this.logger.debug(
+          `[NotificationsService] No se encontro correo electronico para el proyecto ${payload.projectId}. Omitiendo alerta por email.`,
+        );
+        return;
+      }
+
+      await this.emailService.sendDeploymentFailureAlert({
+        to: recipientEmail,
+        userName: recipientName,
+        projectId: payload.projectId,
+        projectName: payload.projectName,
+        repositoryName: payload.repositoryName,
+        deploymentId: payload.deploymentId,
+        branch: payload.branch,
+        commitSha: payload.commitSha,
+        commitMessage: payload.commitMessage,
+        author: payload.author,
+        durationMs: payload.durationMs,
+        errorMessage: payload.errorMessage,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      this.logger.error(
+        `[NotificationsService] Error inesperado al procesar alerta por correo: ${(err as Error).message}`,
+      );
     }
   }
 

@@ -548,7 +548,7 @@ export class GithubOAuthService {
   private async fetchGithubOrganizations(
     accessToken: string,
     repos: GithubRepositoryInfo[] = [],
-    githubUsername?: string,
+    githubUsername?: string | null,
   ): Promise<Array<{ login: string; description?: string; role?: string }>> {
     const orgsMap = new Map<
       string,
@@ -930,7 +930,7 @@ export class GithubOAuthService {
     const userOrgs = await this.fetchGithubOrganizations(
       accessToken,
       allRepos,
-      user.githubUsername,
+      user.githubUsername ?? undefined,
     );
     const teamMap = await this.syncGithubOrganizations(userId, userOrgs);
 

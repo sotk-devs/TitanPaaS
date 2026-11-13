@@ -20,6 +20,9 @@ import { parseEnv, formatEnv } from './utils/env-parser.util.js';
 import { DockerPipelineService } from '../deployment/docker-pipeline.service.js';
 import { TeamsService } from '../teams/teams.service.js';
 import { TeamRole } from '../teams/enums/team-role.enum.js';
+import { AuditService } from '../audit/audit.service.js';
+import { AuditAction } from '../audit/enums/audit-action.enum.js';
+import { AuditResourceType } from '../audit/enums/audit-resource-type.enum.js';
 
 export interface ContainerActionResponse {
   projectId: string;
@@ -39,6 +42,8 @@ export class ProjectsService {
     private readonly dockerPipeline: DockerPipelineService,
     @Optional()
     private readonly teamsService?: TeamsService,
+    @Optional()
+    private readonly auditService?: AuditService,
   ) {}
 
   async create(
@@ -78,7 +83,24 @@ export class ProjectsService {
       userId,
     });
 
-    return this.projectRepository.save(project);
+    const savedProject = await this.projectRepository.save(project);
+
+    await this.auditService?.record({
+      userId,
+      action: AuditAction.PROJECT_CREATE,
+      resourceType: AuditResourceType.PROJECT,
+      resourceId: savedProject.id,
+      projectId: savedProject.id,
+      details: {
+        name: savedProject.name,
+        repositoryName: savedProject.repositoryName,
+        branch: savedProject.branch,
+        port: savedProject.port,
+        teamId: savedProject.teamId || null,
+      },
+    });
+
+    return savedProject;
   }
 
   async findAll(userId: string): Promise<Project[]> {
@@ -291,7 +313,35 @@ export class ProjectsService {
       project.memorySwap = updateProjectDto.memorySwap;
     }
 
-    return this.projectRepository.save(project);
+    const savedProject = await this.projectRepository.save(project);
+
+    await this.auditService?.record({
+      userId,
+      action: AuditAction.PROJECT_UPDATE,
+      resourceType: AuditResourceType.PROJECT,
+      resourceId: savedProject.id,
+      projectId: savedProject.id,
+      details: {
+        updatedFields: Object.keys(updateProjectDto),
+      },
+    });
+
+    if (envVariablesUpdated) {
+      await this.auditService?.record({
+        userId,
+        action: AuditAction.ENV_UPDATE,
+        resourceType: AuditResourceType.ENVIRONMENT,
+        resourceId: savedProject.id,
+        projectId: savedProject.id,
+        details: {
+          action: 'env_variables_updated',
+          keys: Object.keys(updateProjectDto.envVariables || {}),
+          count: Object.keys(updateProjectDto.envVariables || {}).length,
+        },
+      });
+    }
+
+    return savedProject;
   }
 
   async remove(userId: string, id: string): Promise<{ message: string }> {
@@ -300,6 +350,19 @@ export class ProjectsService {
       TeamRole.ADMIN,
     ]);
     await this.projectRepository.remove(project);
+
+    await this.auditService?.record({
+      userId,
+      action: AuditAction.PROJECT_DELETE,
+      resourceType: AuditResourceType.PROJECT,
+      resourceId: id,
+      projectId: id,
+      details: {
+        name: project.name,
+        repositoryName: project.repositoryName,
+      },
+    });
+
     return {
       message: `Proyecto "${project.name}" eliminado exitosamente`,
     };

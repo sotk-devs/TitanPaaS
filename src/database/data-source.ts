@@ -17,6 +17,7 @@ import { ProjectVolume } from '../volumes/entities/project-volume.entity.js';
 import { ApiKey } from '../api-keys/entities/api-key.entity.js';
 import { Team } from '../teams/entities/team.entity.js';
 import { TeamMember } from '../teams/entities/team-member.entity.js';
+import { AuditLog } from '../audit/entities/audit-log.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
   ? {
@@ -35,6 +36,7 @@ export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
         ApiKey,
         Team,
         TeamMember,
+        AuditLog,
       ],
       migrations: ['src/database/migrations/*.ts'],
       synchronize: false,
@@ -59,6 +61,7 @@ export const dataSourceOptions: DataSourceOptions = process.env.DATABASE_URL
         ApiKey,
         Team,
         TeamMember,
+        AuditLog,
       ],
       migrations: ['src/database/migrations/*.ts'],
       synchronize: false,

@@ -26,6 +26,7 @@ import { MaintenanceModule } from './maintenance/maintenance.module.js';
 import { TeamsModule } from './teams/teams.module.js';
 import { SystemModule } from './system/system.module.js';
 import { ClusterModule } from './cluster/cluster.module.js';
+import { AuditModule } from './audit/audit.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
 import { getTypeOrmConfig } from './database/database.config.js';
 
@@ -60,6 +61,7 @@ const databaseModules =
         VolumesModule,
         MaintenanceModule,
         TeamsModule,
+        AuditModule,
       ]
     : [];
 

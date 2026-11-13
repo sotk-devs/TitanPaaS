@@ -11,6 +11,7 @@ import { ProjectVolume } from '../volumes/entities/project-volume.entity.js';
 import { ApiKey } from '../api-keys/entities/api-key.entity.js';
 import { Team } from '../teams/entities/team.entity.js';
 import { TeamMember } from '../teams/entities/team-member.entity.js';
+import { AuditLog } from '../audit/entities/audit-log.entity.js';
 
 export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
   const isTest = process.env.NODE_ENV === 'test';
@@ -32,6 +33,7 @@ export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
       ApiKey,
       Team,
       TeamMember,
+      AuditLog,
     ],
     migrations: ['dist/database/migrations/*.js'],
     // Avoid hanging if database is unavailable

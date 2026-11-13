@@ -73,6 +73,11 @@ export const SWAGGER_TAGS: ReadonlyArray<{
     name: 'Dashboard',
     description: 'Interfaz web del panel de control de TitanPaaS',
   },
+  {
+    name: 'Audit Logs',
+    description:
+      'Registro y trazabilidad de acciones sobre proyectos, variables y despliegues',
+  },
 ];
 
 export function createSwaggerConfig() {

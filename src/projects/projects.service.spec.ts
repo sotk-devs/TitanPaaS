@@ -13,12 +13,17 @@ import { Deployment } from '../deployments/entities/deployment.entity.js';
 import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js';
 import { DomainStatus } from '../domains/enums/domain-status.enum.js';
 import { DockerPipelineService } from '../deployment/docker-pipeline.service.js';
+import { AuditService } from '../audit/audit.service.js';
+import { AuditAction } from '../audit/enums/audit-action.enum.js';
 
 describe('ProjectsService', () => {
   let service: ProjectsService;
   let repository: jest.Mocked<Partial<Repository<Project>>>;
   let deploymentRepository: jest.Mocked<Partial<Repository<Deployment>>>;
   let mockDockerPipeline: jest.Mocked<Partial<DockerPipelineService>>;
+  let mockAuditService: {
+    record: jest.MockedFunction<any>;
+  };
 
   const mockUserId = 'uuid-user-1';
   const mockProjectId = 'uuid-project-1';
@@ -106,6 +111,10 @@ describe('ProjectsService', () => {
       }),
     };
 
+    mockAuditService = {
+      record: jest.fn<any>().mockResolvedValue({ id: 'audit-log-id' }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProjectsService,
@@ -120,6 +129,10 @@ describe('ProjectsService', () => {
         {
           provide: DockerPipelineService,
           useValue: mockDockerPipeline,
+        },
+        {
+          provide: AuditService,
+          useValue: mockAuditService,
         },
       ],
     }).compile();
@@ -155,6 +168,12 @@ describe('ProjectsService', () => {
       });
       expect(result).toBeDefined();
       expect(result.name).toBe('sample-project');
+      expect(mockAuditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: mockUserId,
+          action: AuditAction.PROJECT_CREATE,
+        }),
+      );
     });
 
     it('should create project with resource limits (cpuLimit, memoryLimit, memorySwap)', async () => {

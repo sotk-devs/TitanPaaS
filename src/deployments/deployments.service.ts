@@ -23,6 +23,9 @@ import { DockerPipelineService } from '../deployment/docker-pipeline.service.js'
 import { LogsGateway } from '../logs/logs.gateway.js';
 import { TeamsService } from '../teams/teams.service.js';
 import { TeamRole } from '../teams/enums/team-role.enum.js';
+import { AuditService } from '../audit/audit.service.js';
+import { AuditAction } from '../audit/enums/audit-action.enum.js';
+import { AuditResourceType } from '../audit/enums/audit-resource-type.enum.js';
 
 export interface DownloadLogsResult {
   filename: string;
@@ -56,6 +59,8 @@ export class DeploymentsService {
     private readonly logsGateway?: LogsGateway,
     @Optional()
     private readonly teamsService?: TeamsService,
+    @Optional()
+    private readonly auditService?: AuditService,
   ) {}
 
   private async findProjectWithAccess(
@@ -220,6 +225,21 @@ export class DeploymentsService {
       );
     }
 
+    await this.auditService?.record({
+      userId,
+      action: AuditAction.DEPLOYMENT_TRIGGER,
+      resourceType: AuditResourceType.DEPLOYMENT,
+      resourceId: savedDeployment.id,
+      projectId: project.id,
+      details: {
+        branch,
+        commitSha,
+        commitMessage,
+        author,
+        trigger: 'manual',
+      },
+    });
+
     return Object.assign(savedDeployment, { jobId });
   }
 
@@ -319,6 +339,18 @@ export class DeploymentsService {
       `Despliegue #${id} cancelado exitosamente por el usuario ${userId}.`,
     );
 
+    await this.auditService?.record({
+      userId,
+      action: AuditAction.DEPLOYMENT_CANCEL,
+      resourceType: AuditResourceType.DEPLOYMENT,
+      resourceId: savedDeployment.id,
+      projectId: savedDeployment.projectId,
+      details: {
+        deploymentId: savedDeployment.id,
+        status: DeploymentStatus.CANCELLED,
+      },
+    });
+
     return savedDeployment;
   }
 
@@ -407,6 +439,19 @@ export class DeploymentsService {
         `Rollback #${savedDeployment.id} encolado en BullMQ con Job ID: ${jobId}.`,
       );
     }
+
+    await this.auditService?.record({
+      userId,
+      action: AuditAction.DEPLOYMENT_ROLLBACK,
+      resourceType: AuditResourceType.DEPLOYMENT,
+      resourceId: savedDeployment.id,
+      projectId: project.id,
+      details: {
+        sourceDeploymentId: targetDeployment.id,
+        targetCommitSha: targetDeployment.commitSha,
+        branch,
+      },
+    });
 
     return Object.assign(savedDeployment, { jobId });
   }

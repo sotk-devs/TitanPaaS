@@ -1198,13 +1198,12 @@ export class DashboardService {
     // Trigger Deploy
     async function triggerDeploy(projectId) {
       try {
-        const res = await fetch('/deployments', {
+        const res = await fetch(\`/projects/\${projectId}/deploy\`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + currentToken
-          },
-          body: JSON.stringify({ projectId })
+          }
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || 'Error al disparar despliegue');

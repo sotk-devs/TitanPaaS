@@ -461,13 +461,19 @@ describe('GithubOAuthService', () => {
         teamId: 'team-1',
         role: 'OWNER',
       });
+
+      // Now link the organization repo
+      const linkResult = await service.linkRepositories(result.user.id, {
+        all: true,
+      });
+
+      expect(linkResult.linkedCount).toBe(1);
       expect(projectStore).toHaveLength(1);
       expect(projectStore[0]).toMatchObject({
         name: 'TitanPaaS',
         repositoryName: 'sotk-devs/TitanPaaS',
         teamId: 'team-1',
       });
-      expect(result.github.autoLinkedCount).toBe(1);
     });
   });
 

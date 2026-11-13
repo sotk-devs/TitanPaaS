@@ -738,6 +738,12 @@ export class GithubOAuthService {
       if (repo.archived || repo.fork) {
         continue;
       }
+      if (
+        repo.owner?.login &&
+        repo.owner.login.toLowerCase() !== githubUsername.toLowerCase()
+      ) {
+        continue;
+      }
       if (this.findExistingProjectForRepo(repo, existingProjects)) {
         continue;
       }

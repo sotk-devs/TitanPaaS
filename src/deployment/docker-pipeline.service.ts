@@ -57,6 +57,9 @@ export interface RunContainerOptions {
   customDomains?: string[];
   volumes?: VolumeMount[];
   rateLimit?: RateLimitOptions;
+  tls?: boolean;
+  certResolver?: string;
+  redirectHttps?: boolean;
   onLog?: LogCallback;
   signal?: AbortSignal;
 }
@@ -429,7 +432,15 @@ export class DockerPipelineService {
         options.baseDomain || process.env.BASE_DOMAIN || 'localhost';
       const subdomain = options.subdomain;
       const routerName = containerName.replace(/[^a-zA-Z0-9_-]/g, '-');
-      url = `http://${subdomain}.${baseDomain}`;
+      const tlsEnabled =
+        options.tls ?? process.env.TRAEFIK_TLS_ENABLED === 'true';
+      const certResolver =
+        options.certResolver ||
+        process.env.TRAEFIK_CERT_RESOLVER ||
+        'letsencrypt';
+      const redirectHttps = options.redirectHttps ?? true;
+      const protocol = tlsEnabled ? 'https' : 'http';
+      url = `${protocol}://${subdomain}.${baseDomain}`;
 
       const hostRules = [`Host(\`${subdomain}.${baseDomain}\`)`];
       if (options.customDomains?.length) {
@@ -442,7 +453,28 @@ export class DockerPipelineService {
       const traefikLabels: Record<string, string> = {
         'traefik.enable': 'true',
         [`traefik.http.routers.${routerName}.rule`]: hostRule,
-        [`traefik.http.routers.${routerName}.entrypoints`]: 'web',
+        [`traefik.http.routers.${routerName}.entrypoints`]: tlsEnabled
+          ? 'websecure'
+          : 'web',
+        ...(tlsEnabled
+          ? {
+              [`traefik.http.routers.${routerName}.tls`]: 'true',
+              [`traefik.http.routers.${routerName}.tls.certresolver`]:
+                certResolver,
+              ...(redirectHttps
+                ? {
+                    [`traefik.http.routers.${routerName}-http.rule`]: hostRule,
+                    [`traefik.http.routers.${routerName}-http.entrypoints`]:
+                      'web',
+                    [`traefik.http.routers.${routerName}-http.middlewares`]: `${routerName}-redirect-https`,
+                    [`traefik.http.middlewares.${routerName}-redirect-https.redirectscheme.scheme`]:
+                      'https',
+                    [`traefik.http.middlewares.${routerName}-redirect-https.redirectscheme.permanent`]:
+                      'true',
+                  }
+                : {}),
+            }
+          : {}),
         [`traefik.http.services.${routerName}.loadbalancer.server.port`]:
           String(port),
         ...(network ? { 'traefik.docker.network': network } : {}),
@@ -738,6 +770,157 @@ export class DockerPipelineService {
     } catch (error) {
       this.logger.warn(
         `Error limpiando directorio temporal ${targetDir}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  async isSwarmActive(): Promise<boolean> {
+    try {
+      const result = await this.executeCommand('docker', [
+        'info',
+        '--format',
+        '{{.Swarm.LocalNodeState}}',
+      ]);
+      return result.stdout.trim().toLowerCase() === 'active';
+    } catch {
+      return false;
+    }
+  }
+
+  async deploySwarmService(
+    serviceName: string,
+    imageTag: string,
+    port: number,
+    replicas = 1,
+    options?: {
+      envVariables?: Record<string, string>;
+      subdomain?: string;
+      baseDomain?: string;
+      network?: string;
+      placementConstraint?: string;
+      resourceLimits?: ResourceLimits;
+      onLog?: LogCallback;
+    },
+  ): Promise<ContainerRunResult> {
+    const start = Date.now();
+    const cleanServiceName = serviceName.replace(/[^a-zA-Z0-9_-]/g, '-');
+    const network = options?.network || 'titan-overlay';
+
+    let isExisting = false;
+    try {
+      await this.executeCommand('docker', [
+        'service',
+        'inspect',
+        cleanServiceName,
+      ]);
+      isExisting = true;
+    } catch {
+      // Service does not exist in cluster yet
+    }
+
+    const envArgs: string[] = [];
+    if (options?.envVariables) {
+      for (const [key, val] of Object.entries(options.envVariables)) {
+        envArgs.push('--env', `${key}=${val}`);
+      }
+    }
+
+    const constraint = options?.placementConstraint || 'node.role == worker';
+
+    const limitArgs: string[] = [];
+    if (options?.resourceLimits?.cpus) {
+      limitArgs.push('--limit-cpu', String(options.resourceLimits.cpus));
+    }
+    if (options?.resourceLimits?.memory) {
+      limitArgs.push('--limit-memory', options.resourceLimits.memory);
+    }
+
+    let url: string | undefined;
+    const labelArgs: string[] = [];
+    if (options?.subdomain) {
+      const baseDomain =
+        options.baseDomain || process.env.BASE_DOMAIN || 'localhost';
+      url = `http://${options.subdomain}.${baseDomain}`;
+      labelArgs.push('--label', 'traefik.enable=true');
+      labelArgs.push(
+        '--label',
+        `traefik.http.routers.${cleanServiceName}.rule=Host(\`${options.subdomain}.${baseDomain}\`)`,
+      );
+      labelArgs.push(
+        '--label',
+        `traefik.http.routers.${cleanServiceName}.entrypoints=web`,
+      );
+      labelArgs.push(
+        '--label',
+        `traefik.http.services.${cleanServiceName}.loadbalancer.server.port=${port}`,
+      );
+    }
+
+    if (isExisting) {
+      const updateArgs = [
+        'service',
+        'update',
+        '--image',
+        imageTag,
+        '--replicas',
+        String(replicas),
+        ...limitArgs,
+        ...envArgs,
+        ...labelArgs,
+        cleanServiceName,
+      ];
+      await this.executeCommand(
+        'docker',
+        updateArgs,
+        undefined,
+        options?.onLog,
+      );
+    } else {
+      const createArgs = [
+        'service',
+        'create',
+        '--name',
+        cleanServiceName,
+        '--replicas',
+        String(replicas),
+        '--network',
+        network,
+        '--publish',
+        `published=${port},target=${port}`,
+        '--constraint',
+        constraint,
+        ...limitArgs,
+        ...labelArgs,
+        ...envArgs,
+        imageTag,
+      ];
+      await this.executeCommand(
+        'docker',
+        createArgs,
+        undefined,
+        options?.onLog,
+      );
+    }
+
+    const logs = url
+      ? `Swarm service ${cleanServiceName} deployed with ${replicas} replica(s) across cluster workers (routed at ${url})`
+      : `Swarm service ${cleanServiceName} deployed with ${replicas} replica(s) across cluster workers`;
+
+    return {
+      containerId: cleanServiceName,
+      url,
+      logs,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  async removeSwarmService(serviceName: string): Promise<void> {
+    const cleanServiceName = serviceName.replace(/[^a-zA-Z0-9_-]/g, '-');
+    try {
+      await this.executeCommand('docker', ['service', 'rm', cleanServiceName]);
+    } catch (err) {
+      this.logger.warn(
+        `Error removing Swarm service ${cleanServiceName}: ${(err as Error).message}`,
       );
     }
   }

@@ -136,5 +136,22 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
     });
+
+    it('should throw UnauthorizedException if user registered only via OAuth without password', async () => {
+      await usersService.create({
+        email: 'oauth-only@example.com',
+        password: null,
+        name: 'GitHub User',
+        githubId: 'gh-12345',
+        githubUsername: 'ghuser',
+      });
+
+      await expect(
+        authService.login({
+          email: 'oauth-only@example.com',
+          password: 'anyPassword123',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
   });
 });

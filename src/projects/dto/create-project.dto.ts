@@ -6,6 +6,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   Min,
@@ -204,4 +205,12 @@ export class CreateProjectDto {
   @Min(1, { message: 'El mínimo de conexiones concurrentes es 1' })
   @Max(10000, { message: 'El máximo de conexiones concurrentes es 10000' })
   maxConcurrentConnections?: number;
+
+  @ApiPropertyOptional({
+    example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+    description: 'ID opcional del equipo/organización propietario del proyecto',
+  })
+  @IsOptional()
+  @IsUUID('4', { message: 'teamId debe ser un UUID válido' })
+  teamId?: string;
 }

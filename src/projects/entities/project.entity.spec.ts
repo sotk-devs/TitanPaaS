@@ -27,6 +27,9 @@ describe('Project Entity', () => {
     project.rateLimitBurst = 50;
     project.rateLimitPeriod = '1s';
     project.maxConcurrentConnections = 25;
+    project.isClusterEnabled = true;
+    project.clusterReplicas = 3;
+    project.clusterPlacement = 'node.role == worker';
     project.userId = 'uuid-user-1';
 
     const user = new User();
@@ -63,6 +66,9 @@ describe('Project Entity', () => {
     expect(project.rateLimitBurst).toBe(50);
     expect(project.rateLimitPeriod).toBe('1s');
     expect(project.maxConcurrentConnections).toBe(25);
+    expect(project.isClusterEnabled).toBe(true);
+    expect(project.clusterReplicas).toBe(3);
+    expect(project.clusterPlacement).toBe('node.role == worker');
     expect(project.userId).toBe('uuid-user-1');
     expect(project.user).toBe(user);
     expect(project.deployments).toHaveLength(1);

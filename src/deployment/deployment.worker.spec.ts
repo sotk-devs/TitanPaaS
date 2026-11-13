@@ -378,6 +378,44 @@ describe('DeploymentWorker', () => {
       );
     });
 
+    it('should include userEmail and userName in DEPLOY_FAILED notification when project has owner', async () => {
+      mockProjectRepo.findOne = jest.fn<any>().mockResolvedValue({
+        ...mockProject,
+        user: {
+          id: 'uuid-user-1',
+          email: 'owner@example.com',
+          name: 'Jane Owner',
+        },
+      });
+
+      (mockDockerPipeline.buildImage as jest.Mock<any>).mockRejectedValue(
+        new Error('Runtime error in container startup'),
+      );
+
+      const mockJob = {
+        id: 'job-owner-1',
+        name: DEPLOY_JOB,
+        data: mockJobData,
+        updateProgress: jest.fn().mockResolvedValue(undefined as never),
+      } as unknown as Job<DeploymentJobData, any, string>;
+
+      await expect(worker.process(mockJob)).rejects.toThrow(
+        'Runtime error in container startup',
+      );
+
+      expect(
+        mockNotificationsService.notifyDeploymentEvent,
+      ).toHaveBeenCalledWith(
+        NotificationEvent.DEPLOY_FAILED,
+        expect.objectContaining({
+          projectId: 'uuid-project-1',
+          userEmail: 'owner@example.com',
+          userName: 'Jane Owner',
+          errorMessage: 'Runtime error in container startup',
+        }),
+      );
+    });
+
     it('should update DB to CANCELLED and emit cancelled status when aborted by user', async () => {
       const abortError = new Error('The operation was aborted');
       abortError.name = 'AbortError';

@@ -3,9 +3,10 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Project } from './entities/project.entity.js';
 import { Deployment } from '../deployments/entities/deployment.entity.js';
 import { DeploymentStatus } from '../deployments/enums/deployment-status.enum.js';
@@ -17,6 +18,8 @@ import { ImportEnvResponseDto } from './dto/import-env-response.dto.js';
 import { ExportEnvResponseDto } from './dto/export-env-response.dto.js';
 import { parseEnv, formatEnv } from './utils/env-parser.util.js';
 import { DockerPipelineService } from '../deployment/docker-pipeline.service.js';
+import { TeamsService } from '../teams/teams.service.js';
+import { TeamRole } from '../teams/enums/team-role.enum.js';
 
 export interface ContainerActionResponse {
   projectId: string;
@@ -34,6 +37,8 @@ export class ProjectsService {
     @InjectRepository(Deployment)
     private readonly deploymentRepository: Repository<Deployment>,
     private readonly dockerPipeline: DockerPipelineService,
+    @Optional()
+    private readonly teamsService?: TeamsService,
   ) {}
 
   async create(
@@ -42,8 +47,20 @@ export class ProjectsService {
   ): Promise<Project> {
     const normalizedName = createProjectDto.name.trim();
 
+    if (createProjectDto.teamId && this.teamsService) {
+      await this.teamsService.assertTeamMembership(
+        userId,
+        createProjectDto.teamId,
+        [TeamRole.OWNER, TeamRole.ADMIN],
+      );
+    }
+
+    const duplicateWhere = createProjectDto.teamId
+      ? { name: normalizedName, teamId: createProjectDto.teamId }
+      : { name: normalizedName, userId };
+
     const existingProject = await this.projectRepository.findOne({
-      where: { name: normalizedName, userId },
+      where: duplicateWhere,
     });
 
     if (existingProject) {
@@ -65,23 +82,57 @@ export class ProjectsService {
   }
 
   async findAll(userId: string): Promise<Project[]> {
+    if (this.teamsService) {
+      const teamIds = await this.teamsService.getAccessibleTeamIds(userId);
+      if (teamIds.length > 0) {
+        return this.projectRepository.find({
+          where: [{ userId }, { teamId: In(teamIds) }],
+          order: { createdAt: 'DESC' },
+        });
+      }
+    }
+
     return this.projectRepository.find({
       where: { userId },
       order: { createdAt: 'DESC' },
     });
   }
 
-  async findOne(userId: string, id: string): Promise<Project> {
+  private async findOneWithAccess(
+    userId: string,
+    id: string,
+    allowedTeamRoles?: TeamRole[],
+  ): Promise<Project> {
+    if (!this.teamsService) {
+      const project = await this.projectRepository.findOne({
+        where: { id, userId },
+        relations: ['deployments', 'customDomains'],
+      });
+
+      if (!project) {
+        throw new NotFoundException(`Proyecto con ID "${id}" no encontrado`);
+      }
+
+      return project;
+    }
+
     const project = await this.projectRepository.findOne({
-      where: { id, userId },
+      where: { id },
       relations: ['deployments', 'customDomains'],
     });
 
-    if (!project) {
-      throw new NotFoundException(`Proyecto con ID "${id}" no encontrado`);
-    }
+    await this.teamsService.assertProjectAccess(
+      userId,
+      project,
+      allowedTeamRoles,
+      `Proyecto con ID "${id}" no encontrado`,
+    );
 
-    return project;
+    return project!;
+  }
+
+  async findOne(userId: string, id: string): Promise<Project> {
+    return this.findOneWithAccess(userId, id);
   }
 
   async update(
@@ -89,7 +140,11 @@ export class ProjectsService {
     id: string,
     updateProjectDto: UpdateProjectDto,
   ): Promise<Project> {
-    const project = await this.findOne(userId, id);
+    const project = await this.findOneWithAccess(userId, id, [
+      TeamRole.OWNER,
+      TeamRole.ADMIN,
+      TeamRole.DEVELOPER,
+    ]);
 
     if (
       updateProjectDto.name &&
@@ -240,7 +295,10 @@ export class ProjectsService {
   }
 
   async remove(userId: string, id: string): Promise<{ message: string }> {
-    const project = await this.findOne(userId, id);
+    const project = await this.findOneWithAccess(userId, id, [
+      TeamRole.OWNER,
+      TeamRole.ADMIN,
+    ]);
     await this.projectRepository.remove(project);
     return {
       message: `Proyecto "${project.name}" eliminado exitosamente`,
@@ -251,7 +309,11 @@ export class ProjectsService {
     userId: string,
     id: string,
   ): Promise<ContainerActionResponse> {
-    const project = await this.findOne(userId, id);
+    const project = await this.findOneWithAccess(userId, id, [
+      TeamRole.OWNER,
+      TeamRole.ADMIN,
+      TeamRole.DEVELOPER,
+    ]);
     const containerName = this.dockerPipeline.generateContainerName(
       project.repositoryName,
     );
@@ -288,7 +350,11 @@ export class ProjectsService {
     userId: string,
     id: string,
   ): Promise<ContainerActionResponse> {
-    const project = await this.findOne(userId, id);
+    const project = await this.findOneWithAccess(userId, id, [
+      TeamRole.OWNER,
+      TeamRole.ADMIN,
+      TeamRole.DEVELOPER,
+    ]);
     const containerName = this.dockerPipeline.generateContainerName(
       project.repositoryName,
     );
@@ -325,7 +391,11 @@ export class ProjectsService {
     userId: string,
     id: string,
   ): Promise<ContainerActionResponse> {
-    const project = await this.findOne(userId, id);
+    const project = await this.findOneWithAccess(userId, id, [
+      TeamRole.OWNER,
+      TeamRole.ADMIN,
+      TeamRole.DEVELOPER,
+    ]);
     const containerName = this.dockerPipeline.generateContainerName(
       project.repositoryName,
     );
@@ -353,7 +423,11 @@ export class ProjectsService {
     id: string,
     importEnvDto: ImportEnvDto,
   ): Promise<ImportEnvResponseDto> {
-    const project = await this.findOne(userId, id);
+    const project = await this.findOneWithAccess(userId, id, [
+      TeamRole.OWNER,
+      TeamRole.ADMIN,
+      TeamRole.DEVELOPER,
+    ]);
     const parsed = parseEnv(importEnvDto.content);
 
     const mode = importEnvDto.mode || ImportEnvMode.MERGE;

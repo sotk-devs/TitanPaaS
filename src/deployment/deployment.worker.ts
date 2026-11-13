@@ -92,7 +92,7 @@ export class DeploymentWorker extends WorkerHost {
     if (data.projectId && this.projectRepository) {
       project = await this.projectRepository.findOne({
         where: { id: data.projectId },
-        relations: ['customDomains', 'volumes'],
+        relations: ['customDomains', 'volumes', 'user'],
       });
       if (project) {
         port = project.port || 3000;
@@ -521,6 +521,8 @@ export class DeploymentWorker extends WorkerHost {
             author: data.author,
             durationMs: Date.now() - startTime,
             errorMessage,
+            userEmail: project?.user?.email,
+            userName: project?.user?.name,
           },
         );
       }

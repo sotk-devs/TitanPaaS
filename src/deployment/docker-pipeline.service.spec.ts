@@ -411,6 +411,136 @@ describe('DockerPipelineService', () => {
       expect(result.containerId).toBe('container-id-ratelimit');
     });
 
+    it('should configure Traefik TLS, Let’s Encrypt certresolver, and HTTP->HTTPS redirect when tls is enabled', async () => {
+      jest
+        .spyOn(service, 'executeCommand')
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 })
+        .mockResolvedValueOnce({
+          stdout: 'container-id-tls\n',
+          stderr: '',
+          exitCode: 0,
+        });
+
+      const result = await service.runContainer(
+        'titan-app:latest',
+        'titan-app-demo',
+        3000,
+        { PORT: '3000' },
+        {
+          subdomain: 'demo-app',
+          baseDomain: 'titanpaas.dev',
+          network: 'titan-network',
+          customDomains: ['app.example.com'],
+          tls: true,
+        },
+      );
+
+      expect(service.executeCommand).toHaveBeenCalledWith('docker', [
+        'run',
+        '-d',
+        '--name',
+        'titan-app-demo',
+        '--network',
+        'titan-network',
+        '-p',
+        '3000:3000',
+        '--label',
+        'traefik.enable=true',
+        '--label',
+        'traefik.http.routers.titan-app-demo.rule=Host(`demo-app.titanpaas.dev`) || Host(`app.example.com`)',
+        '--label',
+        'traefik.http.routers.titan-app-demo.entrypoints=websecure',
+        '--label',
+        'traefik.http.routers.titan-app-demo.tls=true',
+        '--label',
+        'traefik.http.routers.titan-app-demo.tls.certresolver=letsencrypt',
+        '--label',
+        'traefik.http.routers.titan-app-demo-http.rule=Host(`demo-app.titanpaas.dev`) || Host(`app.example.com`)',
+        '--label',
+        'traefik.http.routers.titan-app-demo-http.entrypoints=web',
+        '--label',
+        'traefik.http.routers.titan-app-demo-http.middlewares=titan-app-demo-redirect-https',
+        '--label',
+        'traefik.http.middlewares.titan-app-demo-redirect-https.redirectscheme.scheme=https',
+        '--label',
+        'traefik.http.middlewares.titan-app-demo-redirect-https.redirectscheme.permanent=true',
+        '--label',
+        'traefik.http.services.titan-app-demo.loadbalancer.server.port=3000',
+        '--label',
+        'traefik.docker.network=titan-network',
+        '-e',
+        'PORT=3000',
+        'titan-app:latest',
+      ]);
+      expect(result.containerId).toBe('container-id-tls');
+      expect(result.url).toBe('https://demo-app.titanpaas.dev');
+      expect(result.logs).toContain('https://demo-app.titanpaas.dev');
+    });
+
+    it('should read TRAEFIK_TLS_ENABLED and TRAEFIK_CERT_RESOLVER from environment and allow disabling HTTPS redirect', async () => {
+      const prevTls = process.env.TRAEFIK_TLS_ENABLED;
+      const prevResolver = process.env.TRAEFIK_CERT_RESOLVER;
+      process.env.TRAEFIK_TLS_ENABLED = 'true';
+      process.env.TRAEFIK_CERT_RESOLVER = 'custom-acme';
+
+      try {
+        jest
+          .spyOn(service, 'executeCommand')
+          .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 })
+          .mockResolvedValueOnce({
+            stdout: 'container-id-env-tls\n',
+            stderr: '',
+            exitCode: 0,
+          });
+
+        const result = await service.runContainer(
+          'titan-app:latest',
+          'titan-app-env',
+          4000,
+          {},
+          {
+            subdomain: 'env-app',
+            baseDomain: 'titanpaas.dev',
+            redirectHttps: false,
+          },
+        );
+
+        expect(service.executeCommand).toHaveBeenCalledWith('docker', [
+          'run',
+          '-d',
+          '--name',
+          'titan-app-env',
+          '-p',
+          '4000:4000',
+          '--label',
+          'traefik.enable=true',
+          '--label',
+          'traefik.http.routers.titan-app-env.rule=Host(`env-app.titanpaas.dev`)',
+          '--label',
+          'traefik.http.routers.titan-app-env.entrypoints=websecure',
+          '--label',
+          'traefik.http.routers.titan-app-env.tls=true',
+          '--label',
+          'traefik.http.routers.titan-app-env.tls.certresolver=custom-acme',
+          '--label',
+          'traefik.http.services.titan-app-env.loadbalancer.server.port=4000',
+          'titan-app:latest',
+        ]);
+        expect(result.url).toBe('https://env-app.titanpaas.dev');
+      } finally {
+        if (prevTls === undefined) {
+          delete process.env.TRAEFIK_TLS_ENABLED;
+        } else {
+          process.env.TRAEFIK_TLS_ENABLED = prevTls;
+        }
+        if (prevResolver === undefined) {
+          delete process.env.TRAEFIK_CERT_RESOLVER;
+        } else {
+          process.env.TRAEFIK_CERT_RESOLVER = prevResolver;
+        }
+      }
+    });
+
     it('should configure cgroups resource limits (--cpus, --memory, --memory-swap) when provided', async () => {
       jest
         .spyOn(service, 'executeCommand')

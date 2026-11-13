@@ -14,6 +14,7 @@ import { MetricsModule } from './metrics/metrics.module.js';
 import { EncryptionModule } from './common/encryption/encryption.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { ApiKeysModule } from './api-keys/api-keys.module.js';
 import { ProjectsModule } from './projects/projects.module.js';
 import { DeploymentsModule } from './deployments/deployments.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
@@ -22,6 +23,9 @@ import { DomainsModule } from './domains/domains.module.js';
 import { DatabasesModule } from './databases/databases.module.js';
 import { VolumesModule } from './volumes/volumes.module.js';
 import { MaintenanceModule } from './maintenance/maintenance.module.js';
+import { TeamsModule } from './teams/teams.module.js';
+import { SystemModule } from './system/system.module.js';
+import { ClusterModule } from './cluster/cluster.module.js';
 import { getTypeOrmConfig } from './database/database.config.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -45,6 +49,7 @@ const databaseModules =
         }),
         UsersModule,
         AuthModule,
+        ApiKeysModule,
         ProjectsModule,
         DeploymentsModule,
         NotificationsModule,
@@ -53,6 +58,7 @@ const databaseModules =
         DatabasesModule,
         VolumesModule,
         MaintenanceModule,
+        TeamsModule,
       ]
     : [];
 
@@ -85,6 +91,8 @@ const workerModules =
     LogsModule,
     MetricsModule,
     EncryptionModule,
+    SystemModule,
+    ClusterModule,
   ],
   controllers: [AppController],
   providers: [

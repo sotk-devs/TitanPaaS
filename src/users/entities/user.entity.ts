@@ -21,8 +21,21 @@ export class User {
   @Index({ unique: true })
   email: string;
 
-  @Column({ type: 'varchar' })
-  password: string;
+  @Column({ type: 'varchar', nullable: true })
+  password?: string | null;
+
+  @Column({ type: 'varchar', nullable: true, unique: true, name: 'github_id' })
+  @Index({ unique: true })
+  githubId?: string | null;
+
+  @Column({ type: 'varchar', nullable: true, name: 'github_username' })
+  githubUsername?: string | null;
+
+  @Column({ type: 'varchar', nullable: true, name: 'avatar_url' })
+  avatarUrl?: string | null;
+
+  @Column({ type: 'text', nullable: true, name: 'github_access_token' })
+  githubAccessToken?: string | null;
 
   @Column({ type: 'varchar' })
   name: string;

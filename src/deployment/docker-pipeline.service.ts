@@ -48,6 +48,9 @@ export interface RunContainerOptions {
   resourceLimits?: ResourceLimits;
   customDomains?: string[];
   volumes?: VolumeMount[];
+  tls?: boolean;
+  certResolver?: string;
+  redirectHttps?: boolean;
   onLog?: LogCallback;
   signal?: AbortSignal;
 }
@@ -420,7 +423,15 @@ export class DockerPipelineService {
         options.baseDomain || process.env.BASE_DOMAIN || 'localhost';
       const subdomain = options.subdomain;
       const routerName = containerName.replace(/[^a-zA-Z0-9_-]/g, '-');
-      url = `http://${subdomain}.${baseDomain}`;
+      const tlsEnabled =
+        options.tls ?? process.env.TRAEFIK_TLS_ENABLED === 'true';
+      const certResolver =
+        options.certResolver ||
+        process.env.TRAEFIK_CERT_RESOLVER ||
+        'letsencrypt';
+      const redirectHttps = options.redirectHttps ?? true;
+      const protocol = tlsEnabled ? 'https' : 'http';
+      url = `${protocol}://${subdomain}.${baseDomain}`;
 
       const hostRules = [`Host(\`${subdomain}.${baseDomain}\`)`];
       if (options.customDomains?.length) {
@@ -433,7 +444,28 @@ export class DockerPipelineService {
       const traefikLabels: Record<string, string> = {
         'traefik.enable': 'true',
         [`traefik.http.routers.${routerName}.rule`]: hostRule,
-        [`traefik.http.routers.${routerName}.entrypoints`]: 'web',
+        [`traefik.http.routers.${routerName}.entrypoints`]: tlsEnabled
+          ? 'websecure'
+          : 'web',
+        ...(tlsEnabled
+          ? {
+              [`traefik.http.routers.${routerName}.tls`]: 'true',
+              [`traefik.http.routers.${routerName}.tls.certresolver`]:
+                certResolver,
+              ...(redirectHttps
+                ? {
+                    [`traefik.http.routers.${routerName}-http.rule`]: hostRule,
+                    [`traefik.http.routers.${routerName}-http.entrypoints`]:
+                      'web',
+                    [`traefik.http.routers.${routerName}-http.middlewares`]: `${routerName}-redirect-https`,
+                    [`traefik.http.middlewares.${routerName}-redirect-https.redirectscheme.scheme`]:
+                      'https',
+                    [`traefik.http.middlewares.${routerName}-redirect-https.redirectscheme.permanent`]:
+                      'true',
+                  }
+                : {}),
+            }
+          : {}),
         [`traefik.http.services.${routerName}.loadbalancer.server.port`]:
           String(port),
         ...(network ? { 'traefik.docker.network': network } : {}),

@@ -23,6 +23,7 @@ import { DatabasesModule } from './databases/databases.module.js';
 import { VolumesModule } from './volumes/volumes.module.js';
 import { MaintenanceModule } from './maintenance/maintenance.module.js';
 import { TeamsModule } from './teams/teams.module.js';
+import { SystemModule } from './system/system.module.js';
 import { getTypeOrmConfig } from './database/database.config.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -87,6 +88,7 @@ const workerModules =
     LogsModule,
     MetricsModule,
     EncryptionModule,
+    SystemModule,
   ],
   controllers: [AppController],
   providers: [

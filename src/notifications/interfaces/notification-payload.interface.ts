@@ -10,6 +10,8 @@ export interface DeploymentNotificationPayload {
   commitSha: string;
   commitMessage?: string;
   author?: string;
+  userEmail?: string;
+  userName?: string;
   url?: string;
   durationMs?: number;
   errorMessage?: string;

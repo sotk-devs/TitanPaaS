@@ -4,6 +4,7 @@ import { NotificationWebhook } from './entities/notification-webhook.entity.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { NotificationsService } from './notifications.service.js';
 import { NotificationsController } from './notifications.controller.js';
+import { EmailService } from './services/email.service.js';
 
 const databaseImports =
   process.env.NODE_ENV !== 'test'
@@ -13,7 +14,7 @@ const databaseImports =
 @Module({
   imports: [...databaseImports],
   controllers: [NotificationsController],
-  providers: [NotificationsService],
-  exports: [NotificationsService],
+  providers: [NotificationsService, EmailService],
+  exports: [NotificationsService, EmailService],
 })
 export class NotificationsModule {}

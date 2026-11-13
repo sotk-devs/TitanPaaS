@@ -16,11 +16,15 @@ import { NotificationWebhook } from './entities/notification-webhook.entity.js';
 import { Project } from '../projects/entities/project.entity.js';
 import { NotificationProviderType } from './enums/notification-provider-type.enum.js';
 import { NotificationEvent } from './enums/notification-event.enum.js';
+import { EmailService } from './services/email.service.js';
 
 describe('NotificationsService', () => {
   let service: NotificationsService;
   let webhookRepo: jest.Mocked<Partial<Repository<NotificationWebhook>>>;
   let projectRepo: jest.Mocked<Partial<Repository<Project>>>;
+  let mockEmailService: {
+    sendDeploymentFailureAlert: jest.MockedFunction<any>;
+  };
 
   const originalFetch = global.fetch;
 
@@ -86,6 +90,13 @@ describe('NotificationsService', () => {
       findOne: jest.fn<any>().mockResolvedValue(mockProject),
     };
 
+    mockEmailService = {
+      sendDeploymentFailureAlert: jest.fn<any>().mockResolvedValue({
+        success: true,
+        messageId: '<test-message-id>',
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NotificationsService,
@@ -96,6 +107,10 @@ describe('NotificationsService', () => {
         {
           provide: getRepositoryToken(Project),
           useValue: projectRepo,
+        },
+        {
+          provide: EmailService,
+          useValue: mockEmailService,
         },
       ],
     }).compile();
@@ -383,6 +398,80 @@ describe('NotificationsService', () => {
       expect(results).toHaveLength(1);
       expect(results[0].webhookId).toBe('wh-1');
       expect(results[0].delivered).toBe(true);
+    });
+
+    it('should dispatch email alert to project owner when DEPLOY_FAILED event occurs with userEmail', async () => {
+      (webhookRepo.find as jest.Mock<any>).mockResolvedValue([]);
+
+      await service.notifyDeploymentEvent(NotificationEvent.DEPLOY_FAILED, {
+        projectId: mockProjectId,
+        projectName: 'sample-project',
+        repositoryName: 'sotk-devs/sample-repo',
+        branch: 'main',
+        commitSha: 'abcdef1',
+        errorMessage: 'Docker build failed: missing Dockerfile',
+        userEmail: 'developer@example.com',
+        userName: 'Developer One',
+      });
+
+      expect(mockEmailService.sendDeploymentFailureAlert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'developer@example.com',
+          userName: 'Developer One',
+          projectId: mockProjectId,
+          projectName: 'sample-project',
+          errorMessage: 'Docker build failed: missing Dockerfile',
+        }),
+      );
+    });
+
+    it('should lookup project owner email when userEmail is not provided in DEPLOY_FAILED event', async () => {
+      (webhookRepo.find as jest.Mock<any>).mockResolvedValue([]);
+      (projectRepo.findOne as jest.Mock<any>).mockResolvedValueOnce({
+        ...mockProject,
+        user: {
+          id: mockUserId,
+          email: 'project-owner@example.com',
+          name: 'Owner Name',
+        },
+      });
+
+      await service.notifyDeploymentEvent(NotificationEvent.DEPLOY_FAILED, {
+        projectId: mockProjectId,
+        projectName: 'sample-project',
+        repositoryName: 'sotk-devs/sample-repo',
+        branch: 'main',
+        commitSha: 'abcdef1',
+        errorMessage: 'Runtime error: memory limit exceeded',
+      });
+
+      expect(projectRepo.findOne).toHaveBeenCalledWith({
+        where: { id: mockProjectId },
+        relations: ['user'],
+      });
+      expect(mockEmailService.sendDeploymentFailureAlert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'project-owner@example.com',
+          userName: 'Owner Name',
+          errorMessage: 'Runtime error: memory limit exceeded',
+        }),
+      );
+    });
+
+    it('should not dispatch email alert on DEPLOY_SUCCEEDED', async () => {
+      (webhookRepo.find as jest.Mock<any>).mockResolvedValue([]);
+
+      await service.notifyDeploymentEvent(NotificationEvent.DEPLOY_SUCCEEDED, {
+        projectId: mockProjectId,
+        projectName: 'sample-project',
+        repositoryName: 'sotk-devs/sample-repo',
+        branch: 'main',
+        commitSha: 'abcdef1',
+      });
+
+      expect(
+        mockEmailService.sendDeploymentFailureAlert,
+      ).not.toHaveBeenCalled();
     });
 
     it('should send test notification via testWebhook', async () => {

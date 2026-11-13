@@ -818,54 +818,54 @@ export class DashboardService {
               Módulos y Endpoints
             </label>
             <select id="endpointSelect" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.88rem; font-weight: 600;" onchange="switchEndpointView(this.value)">
-              <option value="projects">🚀 /projects - Proyectos</option>
-              <option value="teams">👥 /teams - Equipos & RBAC</option>
-              <option value="databases">🗄️ /databases - Bases de Datos</option>
-              <option value="volumes">💾 /volumes - Volúmenes</option>
-              <option value="domains">🌐 /domains - Dominios & SSL</option>
-              <option value="notifications">🔔 /notifications - Webhooks</option>
-              <option value="maintenance">🧹 /maintenance - Mantenimiento</option>
-              <option value="system">🩺 /system - Salud del Sistema</option>
-              <option value="docs">📖 /docs - Swagger OpenAPI</option>
+              <option value="projects">/projects - Proyectos</option>
+              <option value="teams">/teams - Equipos & RBAC</option>
+              <option value="databases">/databases - Bases de Datos</option>
+              <option value="volumes">/volumes - Volúmenes</option>
+              <option value="domains">/domains - Dominios & SSL</option>
+              <option value="notifications">/notifications - Webhooks</option>
+              <option value="maintenance">/maintenance - Mantenimiento</option>
+              <option value="system">/system - Salud del Sistema</option>
+              <option value="docs">/docs - Swagger OpenAPI</option>
             </select>
           </div>
 
           <nav class="endpoint-nav-list" id="endpointNavList">
             <button type="button" class="menu-item-btn active" data-view="projects" onclick="switchEndpointView('projects')">
-              <span>🚀 Proyectos</span>
+              <span>Proyectos</span>
               <span class="menu-badge">/projects</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="teams" onclick="switchEndpointView('teams')">
-              <span>👥 Equipos & RBAC</span>
+              <span>Equipos & RBAC</span>
               <span class="menu-badge">/teams</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="databases" onclick="switchEndpointView('databases')">
-              <span>🗄️ Bases de Datos</span>
+              <span>Bases de Datos</span>
               <span class="menu-badge">/databases</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="volumes" onclick="switchEndpointView('volumes')">
-              <span>💾 Volúmenes</span>
+              <span>Volúmenes</span>
               <span class="menu-badge">/volumes</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="domains" onclick="switchEndpointView('domains')">
-              <span>🌐 Dominios & SSL</span>
+              <span>Dominios & SSL</span>
               <span class="menu-badge">/domains</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="notifications" onclick="switchEndpointView('notifications')">
-              <span>🔔 Notificaciones</span>
+              <span>Notificaciones</span>
               <span class="menu-badge">/notif</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="maintenance" onclick="switchEndpointView('maintenance')">
-              <span>🧹 Mantenimiento</span>
+              <span>Mantenimiento</span>
               <span class="menu-badge">/gc</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="system" onclick="switchEndpointView('system')">
-              <span>🩺 Diagnóstico</span>
+              <span>Diagnóstico</span>
               <span class="menu-badge">/health</span>
             </button>
             <a href="/docs" target="_blank" class="menu-item-btn" style="text-decoration: none;">
-              <span>📖 Documentación API</span>
-              <span class="menu-badge" style="background: #0284c7; color: white;">Swagger ↗</span>
+              <span>Documentación API</span>
+              <span class="menu-badge" style="background: #0284c7; color: white;">Swagger</span>
             </a>
           </nav>
         </aside>
@@ -963,7 +963,7 @@ export class DashboardService {
                 <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 0.25rem;">Mantenimiento del Servidor (/maintenance)</h3>
                 <p style="font-size: 0.85rem; color: var(--text-muted);">Ejecución de Garbage Collection y purga de imágenes y contenedores huérfanos.</p>
               </div>
-              <button class="btn btn-danger btn-sm" onclick="triggerGarbageCollection()">🧹 Ejecutar GC Ahora</button>
+              <button class="btn btn-danger btn-sm" onclick="triggerGarbageCollection()">Ejecutar GC Ahora</button>
             </div>
             <div id="maintenanceContainer">
               <!-- Loaded via JS -->
@@ -1495,7 +1495,7 @@ export class DashboardService {
           <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.25rem; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
             <div>
               <div style="display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 1.05rem;">
-                🏢 \${escapeHtml(t.name)}
+                \${escapeHtml(t.name)}
                 <span class="menu-badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa;">\${escapeHtml(t.myRole || 'MIEMBRO')}</span>
               </div>
               <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">\${escapeHtml(t.description || 'Sin descripción')}</p>
@@ -1603,7 +1603,7 @@ export class DashboardService {
               <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                 <div>
                   <div style="display: flex; align-items: center; gap: 0.5rem; font-weight: 700;">
-                    <span>🗄️ \${escapeHtml(db.name)}</span>
+                    <span>\${escapeHtml(db.name)}</span>
                     <span class="menu-badge" style="background: #0284c7; color: white;">\${escapeHtml(db.type)}</span>
                     <span class="status-badge \${db.status === 'RUNNING' ? 'status-running' : 'status-stopped'}">\${db.status || 'READY'}</span>
                   </div>
@@ -1715,7 +1715,7 @@ export class DashboardService {
             \${volumes.map(v => \`
               <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
                 <div>
-                  <div style="font-weight: 700; font-size: 1rem;">💾 \${escapeHtml(v.name)}</div>
+                  <div style="font-weight: 700; font-size: 1rem;">\${escapeHtml(v.name)}</div>
                   <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
                     Ruta de montaje: <code>\${escapeHtml(v.mountPath || '/data')}</code> | Tamaño: <strong>\${escapeHtml(v.sizeLimit || 'Ilimitado')}</strong>
                   </div>
@@ -1766,7 +1766,7 @@ export class DashboardService {
               <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
                 <div>
                   <div style="font-weight: 700; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
-                    🌐 \${escapeHtml(d.domainName)}
+                    \${escapeHtml(d.domainName)}
                     <span class="status-badge \${d.verified ? 'status-running' : 'status-stopped'}">\${d.verified ? 'DNS VERIFICADO' : 'PENDIENTE'}</span>
                     <span class="menu-badge" style="background: #10b981; color: white;">SSL \${escapeHtml(d.sslStatus || 'ACTIVO')}</span>
                   </div>
@@ -1819,7 +1819,7 @@ export class DashboardService {
             \${notifs.map(n => \`
               <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
                 <div>
-                  <div style="font-weight: 700; font-size: 1rem;">🔔 \${escapeHtml(n.channel || 'Webhook')}: \${escapeHtml(n.name || 'Alerta')}</div>
+                  <div style="font-weight: 700; font-size: 1rem;">\${escapeHtml(n.channel || 'Webhook')}: \${escapeHtml(n.name || 'Alerta')}</div>
                   <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
                     Endpoint URL: <code>\${escapeHtml(n.url || '')}</code>
                   </div>
@@ -2019,7 +2019,7 @@ export class DashboardService {
         const isSelected = activeMetricsProjectId === p.id;
         const teamObj = p.teamId ? teamsList.find(t => t.id === p.teamId) : null;
         const teamBadge = teamObj 
-          ? \`<span style="display: inline-flex; align-items: center; font-size: 0.72rem; padding: 0.15rem 0.5rem; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 9999px; font-weight: 500;">🏢 \${escapeHtml(teamObj.name)}</span>\` 
+          ? \`<span style="display: inline-flex; align-items: center; font-size: 0.72rem; padding: 0.15rem 0.5rem; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 9999px; font-weight: 500;">\${escapeHtml(teamObj.name)}</span>\` 
           : '';
 
         return \`

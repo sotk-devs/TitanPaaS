@@ -687,7 +687,11 @@ export class DashboardService {
           <h1>Panel de Proyectos</h1>
           <p>Gestiona y monitorea tus aplicaciones desplegadas en TitanPaaS en tiempo real.</p>
         </div>
-        <div style="display: flex; gap: 0.75rem;">
+        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+          <select id="teamFilterSelect" class="form-input" style="width: auto; padding: 0.5rem 0.8rem; font-size: 0.85rem;" onchange="handleTeamFilterChange()">
+            <option value="ALL">Todos los proyectos</option>
+            <option value="PERSONAL">Solo Personales</option>
+          </select>
           <button class="btn btn-secondary" onclick="loadProjects()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M23 4v6h-6M1 20v-6h6"/>
@@ -803,6 +807,12 @@ export class DashboardService {
           <input type="text" id="projName" class="form-input" required placeholder="mi-aplicacion-web">
         </div>
         <div class="form-group">
+          <label class="form-label">Organización / Equipo (opcional)</label>
+          <select id="projTeam" class="form-input">
+            <option value="">Personal (mi cuenta)</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label class="form-label">Repositorio de GitHub *</label>
           <input type="text" id="projRepo" class="form-input" required placeholder="usuario/repositorio">
         </div>
@@ -838,6 +848,7 @@ export class DashboardService {
     let currentToken = localStorage.getItem('titan_paas_token');
     let currentUser = null;
     let projectsList = [];
+    let teamsList = [];
     let activeMetricsProjectId = null;
     let metricsSocket = null;
 
@@ -1000,12 +1011,58 @@ export class DashboardService {
         document.getElementById('authSection').style.display = 'none';
         document.getElementById('dashboardSection').style.display = 'block';
 
-        loadProjects();
+        await loadTeams();
+        await loadProjects();
         checkSystemHealth();
         setupMetricsSocket();
       } catch (err) {
         handleLogout();
       }
+    }
+
+    // Load Teams / Organizations
+    async function loadTeams() {
+      try {
+        const res = await fetch('/teams', {
+          headers: { 'Authorization': 'Bearer ' + currentToken }
+        });
+        if (res.ok) {
+          teamsList = await res.json();
+          renderTeamSelects();
+        }
+      } catch (err) {
+        console.warn('Error al cargar equipos:', err);
+      }
+    }
+
+    // Populate Team Selects
+    function renderTeamSelects() {
+      const filterSelect = document.getElementById('teamFilterSelect');
+      const projTeamSelect = document.getElementById('projTeam');
+
+      if (filterSelect) {
+        const currentFilter = filterSelect.value || 'ALL';
+        filterSelect.innerHTML = \`
+          <option value="ALL">Todos los proyectos</option>
+          <option value="PERSONAL">Solo Personales</option>
+          \${teamsList.map(t => \`<option value="\${t.id}">Org: \${escapeHtml(t.name)} (\${t.myRole || 'MIEMBRO'})</option>\`).join('')}
+        \`;
+        if (['ALL', 'PERSONAL', ...teamsList.map(t => t.id)].includes(currentFilter)) {
+          filterSelect.value = currentFilter;
+        }
+      }
+
+      if (projTeamSelect) {
+        const writableTeams = teamsList.filter(t => !t.myRole || t.myRole === 'OWNER' || t.myRole === 'ADMIN');
+        projTeamSelect.innerHTML = \`
+          <option value="">Personal (mi cuenta)</option>
+          \${writableTeams.map(t => \`<option value="\${t.id}">\${escapeHtml(t.name)}</option>\`).join('')}
+        \`;
+      }
+    }
+
+    function handleTeamFilterChange() {
+      renderProjects();
     }
 
     // Load Projects
@@ -1039,14 +1096,22 @@ export class DashboardService {
     // Render Projects
     function renderProjects() {
       const container = document.getElementById('projectsContainer');
-      document.getElementById('statTotalProjects').textContent = projectsList.length;
+      const filterVal = document.getElementById('teamFilterSelect')?.value || 'ALL';
+
+      const filteredProjects = projectsList.filter(p => {
+        if (filterVal === 'ALL') return true;
+        if (filterVal === 'PERSONAL') return !p.teamId;
+        return p.teamId === filterVal;
+      });
+
+      document.getElementById('statTotalProjects').textContent = filteredProjects.length;
 
       let runningCount = 0;
-      if (projectsList.length === 0) {
+      if (filteredProjects.length === 0) {
         container.innerHTML = \`
           <div style="grid-column: 1 / -1; text-align: center; padding: 3rem; background: var(--bg-card); border-radius: 12px; border: 1px dashed var(--border-color);">
-            <h3 style="font-size: 1.15rem; margin-bottom: 0.5rem;">No tienes proyectos registrados</h3>
-            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">Crea tu primer proyecto para desplegarlo en contenedores Docker y monitorear sus métricas.</p>
+            <h3 style="font-size: 1.15rem; margin-bottom: 0.5rem;">No hay proyectos disponibles</h3>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">No se encontraron proyectos para el filtro o equipo seleccionado.</p>
             <button class="btn btn-primary" onclick="openCreateProjectModal()">Crear Proyecto Ahora</button>
           </div>
         \`;
@@ -1054,17 +1119,24 @@ export class DashboardService {
         return;
       }
 
-      container.innerHTML = projectsList.map(p => {
+      container.innerHTML = filteredProjects.map(p => {
         const isRunning = p.status === 'DEPLOYED' || p.containerStatus === 'running';
         if (isRunning) runningCount++;
         const isSelected = activeMetricsProjectId === p.id;
+        const teamObj = p.teamId ? teamsList.find(t => t.id === p.teamId) : null;
+        const teamBadge = teamObj 
+          ? \`<span style="display: inline-flex; align-items: center; font-size: 0.72rem; padding: 0.15rem 0.5rem; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 9999px; font-weight: 500;">🏢 \${escapeHtml(teamObj.name)}</span>\` 
+          : '';
 
         return \`
           <div class="project-card \${isSelected ? 'active-metrics' : ''}" id="project-card-\${p.id}">
             <div>
               <div class="project-header">
                 <div>
-                  <div class="project-name">\${escapeHtml(p.name)}</div>
+                  <div class="project-name" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    \${escapeHtml(p.name)}
+                    \${teamBadge}
+                  </div>
                   <div class="project-repo">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
                     \${escapeHtml(p.repositoryName)}
@@ -1130,6 +1202,7 @@ export class DashboardService {
       const branch = document.getElementById('projBranch').value.trim() || 'main';
       const port = parseInt(document.getElementById('projPort').value, 10) || 3000;
       const rawEnv = document.getElementById('projEnv').value.trim();
+      const teamId = document.getElementById('projTeam')?.value || undefined;
       const btn = document.getElementById('createProjSubmitBtn');
 
       let envVariables = {};
@@ -1155,13 +1228,18 @@ export class DashboardService {
         btn.disabled = true;
         btn.textContent = 'Creando...';
 
+        const payload = { name, repositoryName, branch, port, envVariables };
+        if (teamId) {
+          payload.teamId = teamId;
+        }
+
         const res = await fetch('/projects', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + currentToken
           },
-          body: JSON.stringify({ name, repositoryName, branch, port, envVariables })
+          body: JSON.stringify(payload)
         });
 
         const data = await res.json();

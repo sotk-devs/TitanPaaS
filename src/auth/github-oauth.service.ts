@@ -15,6 +15,9 @@ import {
   EncryptionService,
 } from '../common/encryption/encryption.service.js';
 import { Project } from '../projects/entities/project.entity.js';
+import { Team } from '../teams/entities/team.entity.js';
+import { TeamMember } from '../teams/entities/team-member.entity.js';
+import { TeamRole } from '../teams/enums/team-role.enum.js';
 import { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { AuthResponse, AuthService } from './auth.service.js';
@@ -70,6 +73,19 @@ export interface LinkedRepositorySummary {
   webhookConfigured?: boolean;
 }
 
+export interface GithubOrgInfo {
+  id: number;
+  login: string;
+  description: string | null;
+  avatar_url?: string | null;
+}
+
+export interface GithubOrgMembership {
+  role: string;
+  state: string;
+  organization: GithubOrgInfo;
+}
+
 export interface GithubRepositoryListItem {
   id: string;
   name: string;
@@ -119,6 +135,12 @@ export class GithubOAuthService {
     @Optional()
     @InjectRepository(Project)
     private readonly projectRepository?: Repository<Project>,
+    @Optional()
+    @InjectRepository(Team)
+    private readonly teamRepository?: Repository<Team>,
+    @Optional()
+    @InjectRepository(TeamMember)
+    private readonly teamMemberRepository?: Repository<TeamMember>,
   ) {}
 
   private getClientConfig(): {
@@ -133,7 +155,8 @@ export class GithubOAuthService {
       process.env.GITHUB_CALLBACK_URL?.trim() ||
       'http://localhost:3000/auth/github/callback';
     const scopes =
-      process.env.GITHUB_OAUTH_SCOPES?.trim() || 'read:user user:email repo';
+      process.env.GITHUB_OAUTH_SCOPES?.trim() ||
+      'read:user user:email repo read:org';
 
     if (!clientId || !clientSecret) {
       throw new ServiceUnavailableException(
@@ -490,17 +513,23 @@ export class GithubOAuthService {
   private async syncProjectWithRepo(
     project: Project,
     repo: GithubRepositoryInfo,
+    teamId?: string | null,
   ): Promise<LinkedRepositorySummary> {
     const repoId = String(repo.id);
+    const shouldUpdateTeam = Boolean(teamId && project.teamId !== teamId);
     const needsMetadataSync =
       project.githubRepoId !== repoId ||
       Boolean(project.isPrivate) !== repo.private ||
-      project.repositoryUrl !== repo.clone_url;
+      project.repositoryUrl !== repo.clone_url ||
+      shouldUpdateTeam;
 
     if (needsMetadataSync && this.projectRepository) {
       project.githubRepoId = repoId;
       project.isPrivate = repo.private;
       project.repositoryUrl = repo.clone_url;
+      if (shouldUpdateTeam && teamId) {
+        project.teamId = teamId;
+      }
       await this.projectRepository.save(project);
     }
 
@@ -514,6 +543,133 @@ export class GithubOAuthService {
       isPrivate: repo.private,
       action: needsMetadataSync ? 'linked' : 'already_linked',
     };
+  }
+
+  private async fetchGithubOrganizations(
+    accessToken: string,
+    repos: GithubRepositoryInfo[] = [],
+    githubUsername?: string,
+  ): Promise<Array<{ login: string; description?: string; role?: string }>> {
+    const orgsMap = new Map<
+      string,
+      { login: string; description?: string; role?: string }
+    >();
+
+    // 1. Memberships
+    try {
+      const memberships = await this.githubRequest<GithubOrgMembership[]>(
+        '/user/memberships/orgs?state=active',
+        accessToken,
+      );
+      if (Array.isArray(memberships)) {
+        for (const m of memberships) {
+          if (m?.organization?.login) {
+            orgsMap.set(m.organization.login.toLowerCase(), {
+              login: m.organization.login,
+              description: m.organization.description || undefined,
+              role: m.role,
+            });
+          }
+        }
+      }
+    } catch {
+      // Ignorado si el scope no lo incluye
+    }
+
+    // 2. Orgs directas
+    try {
+      const orgs = await this.githubRequest<GithubOrgInfo[]>(
+        '/user/orgs',
+        accessToken,
+      );
+      if (Array.isArray(orgs)) {
+        for (const o of orgs) {
+          if (o?.login && !orgsMap.has(o.login.toLowerCase())) {
+            orgsMap.set(o.login.toLowerCase(), {
+              login: o.login,
+              description: o.description || undefined,
+            });
+          }
+        }
+      }
+    } catch {
+      // Ignorado
+    }
+
+    // 3. Inferir organizaciones a partir de los dueños de repositorios
+    for (const repo of repos) {
+      const owner = repo.owner?.login;
+      if (
+        owner &&
+        githubUsername &&
+        owner.toLowerCase() !== githubUsername.toLowerCase() &&
+        !orgsMap.has(owner.toLowerCase())
+      ) {
+        orgsMap.set(owner.toLowerCase(), {
+          login: owner,
+          description: `Organización de GitHub: ${owner}`,
+          role: 'admin',
+        });
+      }
+    }
+
+    return Array.from(orgsMap.values());
+  }
+
+  private async syncGithubOrganizations(
+    userId: string,
+    orgs: Array<{ login: string; description?: string; role?: string }>,
+  ): Promise<Map<string, Team>> {
+    const teamMap = new Map<string, Team>();
+    if (!this.teamRepository || !this.teamMemberRepository) {
+      return teamMap;
+    }
+
+    for (const org of orgs) {
+      const slug = org.login.trim().toLowerCase();
+      try {
+        let team = await this.teamRepository.findOne({ where: { slug } });
+        if (!team) {
+          team = this.teamRepository.create({
+            name: org.login,
+            slug,
+            description:
+              org.description || `Organización de GitHub: ${org.login}`,
+            ownerId: userId,
+          });
+          team = await this.teamRepository.save(team);
+        }
+
+        teamMap.set(slug, team);
+
+        // Asegurar membresía del usuario
+        const existingMember = await this.teamMemberRepository.findOne({
+          where: { teamId: team.id, userId },
+        });
+
+        if (!existingMember) {
+          const role =
+            org.role === 'admin' || team.ownerId === userId
+              ? TeamRole.OWNER
+              : TeamRole.DEVELOPER;
+
+          const member = this.teamMemberRepository.create({
+            teamId: team.id,
+            userId,
+            role,
+          });
+          await this.teamMemberRepository.save(member);
+        }
+      } catch (error) {
+        this.logger.warn(
+          `No se pudo sincronizar la organización de GitHub ${org.login}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    return teamMap;
   }
 
   private async syncUserRepositories(
@@ -538,6 +694,14 @@ export class GithubOAuthService {
       return [];
     }
 
+    // Sincronizar organizaciones de GitHub como equipos de TitanPaaS
+    const userOrgs = await this.fetchGithubOrganizations(
+      accessToken,
+      repos,
+      githubUsername,
+    );
+    const teamMap = await this.syncGithubOrganizations(user.id, userOrgs);
+
     const existingProjects = await this.projectRepository.find({
       where: { userId: user.id },
     });
@@ -549,7 +713,11 @@ export class GithubOAuthService {
     for (const repo of repos) {
       const match = this.findExistingProjectForRepo(repo, existingProjects);
       if (match) {
-        summaries.push(await this.syncProjectWithRepo(match, repo));
+        const ownerLogin = repo.owner?.login?.toLowerCase();
+        const matchingTeam = ownerLogin ? teamMap.get(ownerLogin) : undefined;
+        summaries.push(
+          await this.syncProjectWithRepo(match, repo, matchingTeam?.id),
+        );
       }
     }
 
@@ -570,15 +738,12 @@ export class GithubOAuthService {
       if (repo.archived || repo.fork) {
         continue;
       }
-      if (
-        repo.owner?.login &&
-        repo.owner.login.toLowerCase() !== githubUsername.toLowerCase()
-      ) {
-        continue;
-      }
       if (this.findExistingProjectForRepo(repo, existingProjects)) {
         continue;
       }
+
+      const ownerLogin = repo.owner?.login?.toLowerCase();
+      const matchingTeam = ownerLogin ? teamMap.get(ownerLogin) : undefined;
 
       const projectName = this.resolveUniqueProjectName(repo, takenNames);
       const newProject = this.projectRepository.create({
@@ -591,6 +756,7 @@ export class GithubOAuthService {
         port: 3000,
         envVariables: {},
         userId: user.id,
+        teamId: matchingTeam ? matchingTeam.id : null,
       });
 
       const saved = await this.projectRepository.save(newProject);
@@ -760,6 +926,14 @@ export class GithubOAuthService {
     const accessToken = this.decryptAccessToken(user.githubAccessToken);
     const allRepos = await this.fetchGithubRepositories(accessToken);
 
+    // Sincronizar organizaciones de GitHub como equipos de TitanPaaS
+    const userOrgs = await this.fetchGithubOrganizations(
+      accessToken,
+      allRepos,
+      user.githubUsername,
+    );
+    const teamMap = await this.syncGithubOrganizations(userId, userOrgs);
+
     const requestedSet = new Set(
       (dto.repositories || []).map((name) => name.toLowerCase().trim()),
     );
@@ -782,10 +956,16 @@ export class GithubOAuthService {
 
     for (const repo of targets) {
       const existing = this.findExistingProjectForRepo(repo, existingProjects);
+      const ownerLogin = repo.owner?.login?.toLowerCase();
+      const matchingTeam = ownerLogin ? teamMap.get(ownerLogin) : undefined;
       let summary: LinkedRepositorySummary;
 
       if (existing) {
-        summary = await this.syncProjectWithRepo(existing, repo);
+        summary = await this.syncProjectWithRepo(
+          existing,
+          repo,
+          matchingTeam?.id,
+        );
       } else {
         const projectName = this.resolveUniqueProjectName(repo, takenNames);
         const project = this.projectRepository.create({
@@ -798,6 +978,7 @@ export class GithubOAuthService {
           port: 3000,
           envVariables: {},
           userId,
+          teamId: matchingTeam ? matchingTeam.id : null,
         });
 
         const saved = await this.projectRepository.save(project);

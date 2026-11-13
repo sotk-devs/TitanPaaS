@@ -40,6 +40,14 @@ export interface VolumeMount {
   readOnly?: boolean;
 }
 
+export interface RateLimitOptions {
+  enabled?: boolean;
+  average?: number;
+  burst?: number;
+  period?: string;
+  maxConcurrentConnections?: number;
+}
+
 export interface RunContainerOptions {
   subdomain?: string;
   baseDomain?: string;
@@ -48,6 +56,7 @@ export interface RunContainerOptions {
   resourceLimits?: ResourceLimits;
   customDomains?: string[];
   volumes?: VolumeMount[];
+  rateLimit?: RateLimitOptions;
   tls?: boolean;
   certResolver?: string;
   redirectHttps?: boolean;
@@ -471,6 +480,43 @@ export class DockerPipelineService {
         ...(network ? { 'traefik.docker.network': network } : {}),
         ...options.labels,
       };
+
+      const middlewares: string[] = [];
+
+      if (options.rateLimit?.enabled) {
+        const avg = options.rateLimit.average ?? 100;
+        const burst = options.rateLimit.burst ?? 50;
+        const period = options.rateLimit.period ?? '1s';
+        const rlMiddleware = `${routerName}-ratelimit`;
+
+        traefikLabels[
+          `traefik.http.middlewares.${rlMiddleware}.ratelimit.average`
+        ] = String(avg);
+        traefikLabels[
+          `traefik.http.middlewares.${rlMiddleware}.ratelimit.burst`
+        ] = String(burst);
+        traefikLabels[
+          `traefik.http.middlewares.${rlMiddleware}.ratelimit.period`
+        ] = period;
+        middlewares.push(rlMiddleware);
+      }
+
+      if (options.rateLimit?.maxConcurrentConnections) {
+        const inflightMiddleware = `${routerName}-inflight`;
+        traefikLabels[
+          `traefik.http.middlewares.${inflightMiddleware}.inflightreq.amount`
+        ] = String(options.rateLimit.maxConcurrentConnections);
+        middlewares.push(inflightMiddleware);
+      }
+
+      if (middlewares.length > 0) {
+        const existing =
+          traefikLabels[`traefik.http.routers.${routerName}.middlewares`];
+        traefikLabels[`traefik.http.routers.${routerName}.middlewares`] =
+          existing
+            ? `${existing},${middlewares.join(',')}`
+            : middlewares.join(',');
+      }
 
       for (const [key, val] of Object.entries(traefikLabels)) {
         labelArgs.push('--label', `${key}=${val}`);

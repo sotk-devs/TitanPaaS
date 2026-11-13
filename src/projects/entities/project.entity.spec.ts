@@ -22,6 +22,11 @@ describe('Project Entity', () => {
     project.healthcheckExpectedStatus = 200;
     project.healthcheckTimeout = 5;
     project.healthcheckRetries = 3;
+    project.rateLimitEnabled = true;
+    project.rateLimitAverage = 100;
+    project.rateLimitBurst = 50;
+    project.rateLimitPeriod = '1s';
+    project.maxConcurrentConnections = 25;
     project.isClusterEnabled = true;
     project.clusterReplicas = 3;
     project.clusterPlacement = 'node.role == worker';
@@ -56,6 +61,11 @@ describe('Project Entity', () => {
     expect(project.healthcheckExpectedStatus).toBe(200);
     expect(project.healthcheckTimeout).toBe(5);
     expect(project.healthcheckRetries).toBe(3);
+    expect(project.rateLimitEnabled).toBe(true);
+    expect(project.rateLimitAverage).toBe(100);
+    expect(project.rateLimitBurst).toBe(50);
+    expect(project.rateLimitPeriod).toBe('1s');
+    expect(project.maxConcurrentConnections).toBe(25);
     expect(project.isClusterEnabled).toBe(true);
     expect(project.clusterReplicas).toBe(3);
     expect(project.clusterPlacement).toBe('node.role == worker');

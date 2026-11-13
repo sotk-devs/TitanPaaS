@@ -185,8 +185,36 @@ export class ProjectsService {
       project.envVariables = updateProjectDto.envVariables!;
     }
 
-    // Si se modificaron variables de entorno, recrear el contenedor en caliente si está desplegado
-    if (envVariablesUpdated) {
+    if (updateProjectDto.rateLimitEnabled !== undefined) {
+      project.rateLimitEnabled = updateProjectDto.rateLimitEnabled;
+    }
+
+    if (updateProjectDto.rateLimitAverage !== undefined) {
+      project.rateLimitAverage = updateProjectDto.rateLimitAverage;
+    }
+
+    if (updateProjectDto.rateLimitBurst !== undefined) {
+      project.rateLimitBurst = updateProjectDto.rateLimitBurst;
+    }
+
+    if (updateProjectDto.rateLimitPeriod !== undefined) {
+      project.rateLimitPeriod = updateProjectDto.rateLimitPeriod;
+    }
+
+    if (updateProjectDto.maxConcurrentConnections !== undefined) {
+      project.maxConcurrentConnections =
+        updateProjectDto.maxConcurrentConnections;
+    }
+
+    const rateLimitUpdated =
+      updateProjectDto.rateLimitEnabled !== undefined ||
+      updateProjectDto.rateLimitAverage !== undefined ||
+      updateProjectDto.rateLimitBurst !== undefined ||
+      updateProjectDto.rateLimitPeriod !== undefined ||
+      updateProjectDto.maxConcurrentConnections !== undefined;
+
+    // Si se modificaron variables de entorno o rate limiting, recrear el contenedor en caliente si está desplegado
+    if (envVariablesUpdated || rateLimitUpdated) {
       const containerName = this.dockerPipeline.generateContainerName(
         project.repositoryName,
       );
@@ -213,6 +241,18 @@ export class ProjectsService {
             .map((d) => d.domain) || [];
         const network = process.env.TRAEFIK_NETWORK || 'titan-network';
 
+        const rateLimit =
+          project.rateLimitEnabled || project.maxConcurrentConnections
+            ? {
+                enabled: project.rateLimitEnabled,
+                average: project.rateLimitAverage ?? undefined,
+                burst: project.rateLimitBurst ?? undefined,
+                period: project.rateLimitPeriod ?? undefined,
+                maxConcurrentConnections:
+                  project.maxConcurrentConnections ?? undefined,
+              }
+            : undefined;
+
         try {
           const runResult = await this.dockerPipeline.runContainer(
             imageTag,
@@ -223,6 +263,7 @@ export class ProjectsService {
               subdomain,
               network,
               customDomains: verifiedDomains,
+              rateLimit,
             },
           );
 

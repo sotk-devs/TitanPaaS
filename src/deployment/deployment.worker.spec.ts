@@ -262,6 +262,48 @@ describe('DeploymentWorker', () => {
       );
     });
 
+    it('should forward rate limiting configuration to runContainer when enabled on project', async () => {
+      mockProjectRepo.findOne = jest.fn<any>().mockResolvedValue({
+        id: 'uuid-project-1',
+        name: 'sample-project',
+        repositoryUrl: 'https://github.com/sotk-devs/sample-repo.git',
+        repositoryName: 'sotk-devs/sample-repo',
+        branch: 'main',
+        port: 3000,
+        envVariables: { NODE_ENV: 'production' },
+        rateLimitEnabled: true,
+        rateLimitAverage: 120,
+        rateLimitBurst: 60,
+        rateLimitPeriod: '1s',
+        maxConcurrentConnections: 25,
+      });
+
+      const mockJob = {
+        id: 'job-rl-1',
+        name: DEPLOY_JOB,
+        data: mockJobData,
+        updateProgress: jest.fn().mockResolvedValue(undefined as never),
+      } as unknown as Job<DeploymentJobData, any, string>;
+
+      await worker.process(mockJob);
+
+      expect(mockDockerPipeline.runContainer).toHaveBeenCalledWith(
+        'titan-sample-repo:a1b2c3d',
+        'titan-app-sample-repo',
+        3000,
+        { NODE_ENV: 'production' },
+        expect.objectContaining({
+          rateLimit: {
+            enabled: true,
+            average: 120,
+            burst: 60,
+            period: '1s',
+            maxConcurrentConnections: 25,
+          },
+        }),
+      );
+    });
+
     it('should execute HTTP healthcheck when project has healthcheckPath configured', async () => {
       mockProjectRepo.findOne = jest.fn<any>().mockResolvedValue({
         ...mockProject,

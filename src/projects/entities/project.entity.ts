@@ -96,6 +96,44 @@ export class Project {
   @Column({
     type: 'boolean',
     default: false,
+    name: 'rate_limit_enabled',
+  })
+  rateLimitEnabled: boolean;
+
+  @Column({
+    type: 'int',
+    nullable: true,
+    name: 'rate_limit_average',
+    default: 100,
+  })
+  rateLimitAverage?: number | null;
+
+  @Column({
+    type: 'int',
+    nullable: true,
+    name: 'rate_limit_burst',
+    default: 50,
+  })
+  rateLimitBurst?: number | null;
+
+  @Column({
+    type: 'varchar',
+    nullable: true,
+    name: 'rate_limit_period',
+    default: '1s',
+  })
+  rateLimitPeriod?: string | null;
+
+  @Column({
+    type: 'int',
+    nullable: true,
+    name: 'max_concurrent_connections',
+  })
+  maxConcurrentConnections?: number | null;
+
+  @Column({
+    type: 'boolean',
+    default: false,
     name: 'is_cluster_enabled',
   })
   isClusterEnabled: boolean;

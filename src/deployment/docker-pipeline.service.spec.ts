@@ -346,6 +346,71 @@ describe('DockerPipelineService', () => {
       expect(result.logs).toContain('http://demo-app.localhost');
     });
 
+    it('should configure Traefik rate limiting and in-flight request middleware labels when rateLimit options are provided', async () => {
+      jest
+        .spyOn(service, 'executeCommand')
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 })
+        .mockResolvedValueOnce({
+          stdout: 'container-id-ratelimit\n',
+          stderr: '',
+          exitCode: 0,
+        });
+
+      const result = await service.runContainer(
+        'titan-app:latest',
+        'titan-app-demo',
+        3000,
+        { PORT: '3000' },
+        {
+          subdomain: 'demo-app',
+          baseDomain: 'localhost',
+          network: 'titan-network',
+          rateLimit: {
+            enabled: true,
+            average: 150,
+            burst: 75,
+            period: '1s',
+            maxConcurrentConnections: 30,
+          },
+        },
+      );
+
+      expect(service.executeCommand).toHaveBeenCalledWith('docker', [
+        'run',
+        '-d',
+        '--name',
+        'titan-app-demo',
+        '--network',
+        'titan-network',
+        '-p',
+        '3000:3000',
+        '--label',
+        'traefik.enable=true',
+        '--label',
+        'traefik.http.routers.titan-app-demo.rule=Host(`demo-app.localhost`)',
+        '--label',
+        'traefik.http.routers.titan-app-demo.entrypoints=web',
+        '--label',
+        'traefik.http.services.titan-app-demo.loadbalancer.server.port=3000',
+        '--label',
+        'traefik.docker.network=titan-network',
+        '--label',
+        'traefik.http.middlewares.titan-app-demo-ratelimit.ratelimit.average=150',
+        '--label',
+        'traefik.http.middlewares.titan-app-demo-ratelimit.ratelimit.burst=75',
+        '--label',
+        'traefik.http.middlewares.titan-app-demo-ratelimit.ratelimit.period=1s',
+        '--label',
+        'traefik.http.middlewares.titan-app-demo-inflight.inflightreq.amount=30',
+        '--label',
+        'traefik.http.routers.titan-app-demo.middlewares=titan-app-demo-ratelimit,titan-app-demo-inflight',
+        '-e',
+        'PORT=3000',
+        'titan-app:latest',
+      ]);
+      expect(result.containerId).toBe('container-id-ratelimit');
+    });
+
     it('should configure Traefik TLS, Let’s Encrypt certresolver, and HTTP->HTTPS redirect when tls is enabled', async () => {
       jest
         .spyOn(service, 'executeCommand')

@@ -9,6 +9,7 @@ import {
   type Relation,
 } from 'typeorm';
 import type { Project } from '../../projects/entities/project.entity.js';
+import type { ApiKey } from '../../api-keys/entities/api-key.entity.js';
 import type { Team } from '../../teams/entities/team.entity.js';
 import type { TeamMember } from '../../teams/entities/team-member.entity.js';
 
@@ -42,6 +43,9 @@ export class User {
 
   @OneToMany('Project', 'user')
   projects: Relation<Project>[];
+
+  @OneToMany('ApiKey', 'user')
+  apiKeys?: Relation<ApiKey>[];
 
   @OneToMany('Team', 'owner')
   ownedTeams?: Relation<Team>[];

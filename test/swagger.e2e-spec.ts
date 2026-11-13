@@ -59,10 +59,14 @@ describe('OpenAPI / Swagger Documentation (e2e)', () => {
     expect(spec.info.title).toBe('TitanPaaS API');
     expect(spec.info.version).toBe('1.0.0');
 
-    // Verify Bearer JWT security scheme
+    // Verify Bearer JWT and API Key security schemes
     expect(spec.components?.securitySchemes?.bearer).toBeDefined();
     expect(spec.components.securitySchemes.bearer.type).toBe('http');
     expect(spec.components.securitySchemes.bearer.scheme).toBe('bearer');
+    expect(spec.components?.securitySchemes?.['api-key']).toBeDefined();
+    expect(spec.components.securitySchemes['api-key'].type).toBe('apiKey');
+    expect(spec.components.securitySchemes['api-key'].name).toBe('X-API-Key');
+    expect(spec.components.securitySchemes['api-key'].in).toBe('header');
 
     // Verify all platform tags are published
     const tagNames = (spec.tags ?? []).map((t: { name: string }) => t.name);

@@ -19,6 +19,11 @@ export const SWAGGER_TAGS: ReadonlyArray<{
     description: 'Registro, inicio de sesión y perfil del usuario autenticado',
   },
   {
+    name: 'API Keys',
+    description:
+      'Generación, revocación y gestión de tokens API con scopes granulares',
+  },
+  {
     name: 'Projects',
     description:
       'Gestión de proyectos, variables de entorno y ciclo de vida de contenedores',
@@ -91,6 +96,15 @@ export function createSwaggerConfig() {
         description: 'Token JWT obtenido desde /auth/login o /auth/register',
       },
       'bearer',
+    )
+    .addApiKey(
+      {
+        type: 'apiKey',
+        name: 'X-API-Key',
+        in: 'header',
+        description: 'API Key de acceso programático (prefijo tp_live_...)',
+      },
+      'api-key',
     );
 
   for (const tag of SWAGGER_TAGS) {

@@ -8,6 +8,7 @@ import { ProjectDatabase } from '../databases/entities/project-database.entity.j
 import { DatabaseBackup } from '../databases/entities/database-backup.entity.js';
 import { BackupSchedule } from '../databases/entities/backup-schedule.entity.js';
 import { ProjectVolume } from '../volumes/entities/project-volume.entity.js';
+import { ApiKey } from '../api-keys/entities/api-key.entity.js';
 import { Team } from '../teams/entities/team.entity.js';
 import { TeamMember } from '../teams/entities/team-member.entity.js';
 
@@ -28,6 +29,7 @@ export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
       DatabaseBackup,
       BackupSchedule,
       ProjectVolume,
+      ApiKey,
       Team,
       TeamMember,
     ],

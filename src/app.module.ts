@@ -14,6 +14,7 @@ import { MetricsModule } from './metrics/metrics.module.js';
 import { EncryptionModule } from './common/encryption/encryption.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { ApiKeysModule } from './api-keys/api-keys.module.js';
 import { ProjectsModule } from './projects/projects.module.js';
 import { DeploymentsModule } from './deployments/deployments.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
@@ -48,6 +49,7 @@ const databaseModules =
         }),
         UsersModule,
         AuthModule,
+        ApiKeysModule,
         ProjectsModule,
         DeploymentsModule,
         NotificationsModule,

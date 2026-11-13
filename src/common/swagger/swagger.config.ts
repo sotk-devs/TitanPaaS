@@ -70,6 +70,10 @@ export const SWAGGER_TAGS: ReadonlyArray<{
     description: 'Recepción de webhooks de GitHub (ping y push)',
   },
   {
+    name: 'Dashboard',
+    description: 'Interfaz web del panel de control de TitanPaaS',
+  },
+  {
     name: 'Audit Logs',
     description:
       'Registro y trazabilidad de acciones sobre proyectos, variables y despliegues',

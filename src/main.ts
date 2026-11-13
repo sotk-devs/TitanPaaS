@@ -34,7 +34,26 @@ async function bootstrap() {
   app.use(
     helmet({
       contentSecurityPolicy:
-        process.env.NODE_ENV === 'production' ? undefined : false,
+        process.env.NODE_ENV === 'production'
+          ? {
+              directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: [
+                  "'self'",
+                  "'unsafe-inline'",
+                  'https://cdn.socket.io',
+                ],
+                styleSrc: [
+                  "'self'",
+                  "'unsafe-inline'",
+                  'https://fonts.googleapis.com',
+                ],
+                fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+                connectSrc: ["'self'", 'ws:', 'wss:', 'http:', 'https:'],
+                imgSrc: ["'self'", 'data:', 'https:'],
+              },
+            }
+          : false,
     }),
   );
   app.enableCors({
@@ -53,6 +72,9 @@ async function bootstrap() {
   logger.log(`TitanPaaS application is running on port: ${port}`);
   logger.log(
     `Swagger Interactive UI available at: http://localhost:${port}/docs`,
+  );
+  logger.log(
+    `TitanPaaS Dashboard Web available at: http://localhost:${port}/dashboard`,
   );
 }
 bootstrap();

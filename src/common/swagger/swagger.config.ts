@@ -69,6 +69,10 @@ export const SWAGGER_TAGS: ReadonlyArray<{
     name: 'Webhooks',
     description: 'Recepción de webhooks de GitHub (ping y push)',
   },
+  {
+    name: 'Dashboard',
+    description: 'Interfaz web del panel de control de TitanPaaS',
+  },
 ];
 
 export function createSwaggerConfig() {

@@ -27,6 +27,8 @@ describe('GithubOAuthService', () => {
   let projectRepository: jest.Mocked<Partial<Repository<Project>>>;
   let userStore: Map<string, User>;
   let projectStore: Project[];
+  let teamStore: any[];
+  let teamMemberStore: any[];
   let fetchSpy: jest.SpiedFunction<typeof fetch>;
 
   const originalEnv = process.env;
@@ -53,6 +55,8 @@ describe('GithubOAuthService', () => {
 
     userStore = new Map<string, User>();
     projectStore = [];
+    teamStore = [];
+    teamMemberStore = [];
     encryptionService = new EncryptionService();
 
     usersService = {
@@ -141,6 +145,38 @@ describe('GithubOAuthService', () => {
       }),
     };
 
+    const teamRepository = {
+      findOne: jest.fn(
+        async ({ where }: any) =>
+          teamStore.find((t) => t.slug === where.slug) || null,
+      ),
+      create: jest.fn((dto: any) => ({
+        ...dto,
+        id: `team-${teamStore.length + 1}`,
+      })),
+      save: jest.fn(async (entity: any) => {
+        teamStore.push(entity);
+        return entity;
+      }),
+    };
+
+    const teamMemberRepository = {
+      findOne: jest.fn(
+        async ({ where }: any) =>
+          teamMemberStore.find(
+            (m) => m.teamId === where.teamId && m.userId === where.userId,
+          ) || null,
+      ),
+      create: jest.fn((dto: any) => ({
+        ...dto,
+        id: `tm-${teamMemberStore.length + 1}`,
+      })),
+      save: jest.fn(async (entity: any) => {
+        teamMemberStore.push(entity);
+        return entity;
+      }),
+    };
+
     fetchSpy = jest.spyOn(globalThis, 'fetch');
 
     service = new GithubOAuthService(
@@ -148,6 +184,8 @@ describe('GithubOAuthService', () => {
       authService as unknown as AuthService,
       encryptionService,
       projectRepository as unknown as Repository<Project>,
+      teamRepository as any,
+      teamMemberRepository as any,
     );
   });
 
@@ -355,6 +393,87 @@ describe('GithubOAuthService', () => {
         action: 'linked',
       });
       expect(projectStore).toHaveLength(1);
+    });
+
+    it('should synchronize GitHub organizations as teams and link org repos with teamId', async () => {
+      fetchSpy.mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes('/login/oauth/access_token')) {
+          return makeMockResponse(200, { access_token: 'gho_org_token' });
+        }
+        if (url.endsWith('/user')) {
+          return makeMockResponse(200, {
+            id: 555,
+            login: 'raaulgal09',
+            name: 'Raul Garcia',
+            email: 'raul@sotk.dev',
+            avatar_url: null,
+          });
+        }
+        if (url.endsWith('/user/emails')) {
+          return makeMockResponse(200, [
+            { email: 'raul@sotk.dev', primary: true, verified: true },
+          ]);
+        }
+        if (url.includes('/user/memberships/orgs')) {
+          return makeMockResponse(200, [
+            {
+              role: 'admin',
+              state: 'active',
+              organization: {
+                id: 9999,
+                login: 'sotk-devs',
+                description: 'Organización SOTK',
+              },
+            },
+          ]);
+        }
+        if (url.includes('/user/repos')) {
+          return makeMockResponse(200, [
+            {
+              id: 888,
+              name: 'TitanPaaS',
+              full_name: 'sotk-devs/TitanPaaS',
+              html_url: 'https://github.com/sotk-devs/TitanPaaS',
+              clone_url: 'https://github.com/sotk-devs/TitanPaaS.git',
+              default_branch: 'main',
+              private: true,
+              fork: false,
+              archived: false,
+              description: 'PaaS platform',
+              owner: { login: 'sotk-devs' },
+            },
+          ]);
+        }
+        return makeMockResponse(404, {});
+      });
+
+      const state = service.generateState({ autoLink: true });
+      const result = await service.authenticateWithCode('code-with-org', state);
+
+      expect(teamStore).toHaveLength(1);
+      expect(teamStore[0]).toMatchObject({
+        name: 'sotk-devs',
+        slug: 'sotk-devs',
+      });
+      expect(teamMemberStore).toHaveLength(1);
+      expect(teamMemberStore[0]).toMatchObject({
+        teamId: 'team-1',
+        role: 'OWNER',
+      });
+
+      // Now link the organization repo
+      const linkResult = await service.linkRepositories(result.user.id, {
+        all: true,
+      });
+
+      expect(linkResult.linkedCount).toBe(1);
+      expect(projectStore).toHaveLength(1);
+      expect(projectStore[0]).toMatchObject({
+        name: 'TitanPaaS',
+        repositoryName: 'sotk-devs/TitanPaaS',
+        teamId: 'team-1',
+      });
     });
   });
 

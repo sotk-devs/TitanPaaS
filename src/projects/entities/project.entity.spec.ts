@@ -22,6 +22,9 @@ describe('Project Entity', () => {
     project.healthcheckExpectedStatus = 200;
     project.healthcheckTimeout = 5;
     project.healthcheckRetries = 3;
+    project.isClusterEnabled = true;
+    project.clusterReplicas = 3;
+    project.clusterPlacement = 'node.role == worker';
     project.userId = 'uuid-user-1';
 
     const user = new User();
@@ -53,6 +56,9 @@ describe('Project Entity', () => {
     expect(project.healthcheckExpectedStatus).toBe(200);
     expect(project.healthcheckTimeout).toBe(5);
     expect(project.healthcheckRetries).toBe(3);
+    expect(project.isClusterEnabled).toBe(true);
+    expect(project.clusterReplicas).toBe(3);
+    expect(project.clusterPlacement).toBe('node.role == worker');
     expect(project.userId).toBe('uuid-user-1');
     expect(project.user).toBe(user);
     expect(project.deployments).toHaveLength(1);

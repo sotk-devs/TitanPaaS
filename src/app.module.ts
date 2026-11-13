@@ -24,6 +24,7 @@ import { VolumesModule } from './volumes/volumes.module.js';
 import { MaintenanceModule } from './maintenance/maintenance.module.js';
 import { TeamsModule } from './teams/teams.module.js';
 import { SystemModule } from './system/system.module.js';
+import { ClusterModule } from './cluster/cluster.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
 import { getTypeOrmConfig } from './database/database.config.js';
 
@@ -90,6 +91,7 @@ const workerModules =
     MetricsModule,
     EncryptionModule,
     SystemModule,
+    ClusterModule,
     DashboardModule,
   ],
   controllers: [AppController],

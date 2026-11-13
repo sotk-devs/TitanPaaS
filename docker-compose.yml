@@ -10,12 +10,19 @@ services:
       - '--providers.docker.exposedbydefault=false'
       - '--providers.docker.network=titan-network'
       - '--entrypoints.web.address=:80'
+      - '--entrypoints.websecure.address=:443'
+      - '--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@localhost}'
+      - '--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json'
+      - '--certificatesresolvers.letsencrypt.acme.httpchallenge=true'
+      - '--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web'
       - '--ping=true'
     ports:
       - '${TRAEFIK_HTTP_PORT:-80}:80'
+      - '${TRAEFIK_HTTPS_PORT:-443}:443'
       - '${TRAEFIK_DASHBOARD_PORT:-8080}:8080'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_letsencrypt:/letsencrypt
     healthcheck:
       test: ['CMD', 'traefik', 'healthcheck', '--ping']
       interval: 10s
@@ -93,6 +100,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  traefik_letsencrypt:
     driver: local
 
 networks:

@@ -6,10 +6,10 @@ try {
 
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule, ObserveInstrument } from './app.module.js';
 import { AppLogger } from './common/logger/app-logger.service.js';
+import { setupSwagger } from './common/swagger/swagger.config.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -46,24 +46,13 @@ async function bootstrap() {
   });
 
   // Swagger Documentation & Interactive UI
-  const config = new DocumentBuilder()
-    .setTitle('TitanPaaS API')
-    .setDescription(
-      'Documentación interactiva de la API de TitanPaaS - Módulo de Autenticación',
-    )
-    .setVersion('1.0')
-    .addBearerAuth()
-    .addApiKey({ type: 'apiKey', name: 'X-API-Key', in: 'header' }, 'api-key')
-    .addApiKey({ type: 'apiKey', name: 'X-API-Key', in: 'header' }, 'api-key')
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  setupSwagger(app);
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
   logger.log(`TitanPaaS application is running on port: ${port}`);
   logger.log(
-    `Swagger Interactive UI available at: http://localhost:${port}/api/docs`,
+    `Swagger Interactive UI available at: http://localhost:${port}/docs`,
   );
 }
 bootstrap();

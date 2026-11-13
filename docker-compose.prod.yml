@@ -1,0 +1,170 @@
+# ==============================================================================
+# TitanPaaS Production Orchestration Stack
+# Optimized for VPS and Bare-Metal Linux Servers
+# ==============================================================================
+
+services:
+  traefik:
+    image: traefik:v3.1
+    container_name: titan-traefik
+    restart: always
+    command:
+      - '--api.insecure=false'
+      - '--api.dashboard=false'
+      - '--providers.docker=true'
+      - '--providers.docker.exposedbydefault=false'
+      - '--providers.docker.network=titan-network'
+      - '--entrypoints.web.address=:80'
+      - '--entrypoints.web.http.redirections.entrypoint.to=websecure'
+      - '--entrypoints.web.http.redirections.entrypoint.scheme=https'
+      - '--entrypoints.websecure.address=:443'
+      - '--entrypoints.websecure.http.tls.certresolver=letsencrypt'
+      - '--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@localhost}'
+      - '--certificatesresolvers.letsencrypt.acme.storage=/etc/traefik/acme/acme.json'
+      - '--certificatesresolvers.letsencrypt.acme.httpchallenge=true'
+      - '--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web'
+      - '--ping=true'
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_acme:/etc/traefik/acme
+    healthcheck:
+      test: ['CMD', 'traefik', 'healthcheck', '--ping']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - titan-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: titan-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-titan_paas}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-titan_paas}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - titan-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  redis:
+    image: redis:7-alpine
+    container_name: titan-redis
+    restart: always
+    command: >
+      sh -c '
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes
+        else
+          redis-server --appendonly yes
+        fi
+      '
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: >
+        sh -c '
+          if [ -n "$$REDIS_PASSWORD" ]; then
+            redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG
+          else
+            redis-cli ping | grep -q PONG
+          fi
+        '
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - titan-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  titan-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: titanpaas/api:latest
+    container_name: titan-api
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      BASE_DOMAIN: ${DOMAIN:-localhost}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-titan_paas}?schema=public
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-titan_paas}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - titan_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.docker.network=titan-network'
+      - 'traefik.http.routers.titan-api.rule=Host(`${DOMAIN:-localhost}`) || Host(`api.${DOMAIN:-localhost}`)'
+      - 'traefik.http.routers.titan-api.entrypoints=websecure,web'
+      - 'traefik.http.routers.titan-api.tls.certresolver=letsencrypt'
+      - 'traefik.http.services.titan-api.loadbalancer.server.port=3000'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/system/health']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks:
+      - titan-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '20m'
+        max-file: '5'
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  traefik_acme:
+    driver: local
+  titan_data:
+    driver: local
+
+networks:
+  titan-network:
+    name: titan-network
+    driver: bridge

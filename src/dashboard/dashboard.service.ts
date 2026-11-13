@@ -418,9 +418,44 @@ export class DashboardService {
       flex-wrap: wrap;
     }
 
+    /* Dashboard Split Layout (Metrics Left, Projects Right) */
+    .dashboard-split-layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 1.5rem;
+      align-items: start;
+      margin-top: 1.5rem;
+    }
+
+    .dashboard-sidebar-metrics {
+      position: sticky;
+      top: 5.5rem;
+    }
+
+    .dashboard-sidebar-metrics .metrics-panel {
+      margin-top: 0;
+    }
+
+    .dashboard-sidebar-metrics .metrics-grid {
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+
+    .dashboard-main-projects {
+      min-width: 0;
+    }
+
+    @media (max-width: 1024px) {
+      .dashboard-split-layout {
+        grid-template-columns: 1fr;
+      }
+      .dashboard-sidebar-metrics {
+        position: static;
+      }
+    }
+
     /* Real-Time Metrics Panel */
     .metrics-panel {
-      margin-top: 2rem;
       background: var(--bg-card);
       border: 1px solid var(--border-color);
       border-radius: var(--radius);
@@ -724,70 +759,77 @@ export class DashboardService {
         </div>
       </div>
 
-      <!-- Projects Grid -->
-      <div class="projects-grid" id="projectsContainer">
-        <!-- Rendered via JS -->
-      </div>
+      <!-- Main Content Split: Metrics on Left, Projects on Remainder (Right) -->
+      <div class="dashboard-split-layout">
+        <!-- Left Column: Real-Time Hardware Metrics -->
+        <aside class="dashboard-sidebar-metrics">
+          <div class="metrics-panel" id="metricsPanel">
+            <div class="metrics-header">
+              <div class="metrics-title">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="#10b981"/>
+                </svg>
+                <span>Métricas: <span id="metricsProjectTitle" style="color: var(--primary); font-size: 1.05rem;"></span></span>
+              </div>
+              <div class="live-indicator">
+                <div class="live-dot"></div>
+                WebSocket (/metrics)
+              </div>
+            </div>
 
-      <!-- Real-Time Hardware Metrics Section -->
-      <div class="metrics-panel" id="metricsPanel" style="display: none;">
-        <div class="metrics-header">
-          <div class="metrics-title">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="#10b981"/>
-            </svg>
-            Métricas en Tiempo Real: <span id="metricsProjectTitle" style="color: var(--primary); margin-left: 0.5rem;"></span>
-          </div>
-          <div class="live-indicator">
-            <div class="live-dot"></div>
-            WebSocket Conectado (/metrics)
-          </div>
-        </div>
+            <div class="metrics-grid">
+              <!-- CPU Metric -->
+              <div class="metric-gauge-card">
+                <div class="gauge-top">
+                  <span class="gauge-label">Uso de CPU</span>
+                  <span class="gauge-val" id="metricCpuVal">0%</span>
+                </div>
+                <div class="progress-bar-bg">
+                  <div class="progress-bar-fill" id="metricCpuBar" style="width: 0%;"></div>
+                </div>
+                <div class="gauge-detail">
+                  <span>Procesos (PIDs): <strong id="metricPids">0</strong></span>
+                  <span id="metricCpuStatus">Normal</span>
+                </div>
+              </div>
 
-        <div class="metrics-grid">
-          <!-- CPU Metric -->
-          <div class="metric-gauge-card">
-            <div class="gauge-top">
-              <span class="gauge-label">Uso de CPU</span>
-              <span class="gauge-val" id="metricCpuVal">0%</span>
-            </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill" id="metricCpuBar" style="width: 0%;"></div>
-            </div>
-            <div class="gauge-detail">
-              <span>Procesos (PIDs): <strong id="metricPids">0</strong></span>
-              <span id="metricCpuStatus">Normal</span>
+              <!-- RAM / Memory Metric -->
+              <div class="metric-gauge-card">
+                <div class="gauge-top">
+                  <span class="gauge-label">Memoria RAM</span>
+                  <span class="gauge-val" id="metricMemVal">0%</span>
+                </div>
+                <div class="progress-bar-bg">
+                  <div class="progress-bar-fill" id="metricMemBar" style="width: 0%;"></div>
+                </div>
+                <div class="gauge-detail">
+                  <span>Consumo: <strong id="metricMemUsage">0 MiB</strong></span>
+                  <span>Límite: <strong id="metricMemLimit">0 GiB</strong></span>
+                </div>
+              </div>
+
+              <!-- Network IO Metric -->
+              <div class="metric-gauge-card">
+                <div class="gauge-top">
+                  <span class="gauge-label">Tráfico de Red (Net I/O)</span>
+                  <span class="gauge-val" style="font-size: 1.15rem; color: #38bdf8;" id="metricNetVal">0B / 0B</span>
+                </div>
+                <div class="gauge-detail" style="margin-top: 1rem;">
+                  <span>Entrada (In): <strong id="metricNetIn" style="color: #34d399;">0 B</strong></span>
+                  <span>Salida (Out): <strong id="metricNetOut" style="color: #60a5fa;">0 B</strong></span>
+                </div>
+                <div class="gauge-detail" style="margin-top: 0.5rem;">
+                  <span>Block I/O: <strong id="metricBlockIo">0B / 0B</strong></span>
+                </div>
+              </div>
             </div>
           </div>
+        </aside>
 
-          <!-- RAM / Memory Metric -->
-          <div class="metric-gauge-card">
-            <div class="gauge-top">
-              <span class="gauge-label">Memoria RAM</span>
-              <span class="gauge-val" id="metricMemVal">0%</span>
-            </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill" id="metricMemBar" style="width: 0%;"></div>
-            </div>
-            <div class="gauge-detail">
-              <span>Consumo: <strong id="metricMemUsage">0 MiB</strong></span>
-              <span>Límite: <strong id="metricMemLimit">0 GiB</strong></span>
-            </div>
-          </div>
-
-          <!-- Network IO Metric -->
-          <div class="metric-gauge-card">
-            <div class="gauge-top">
-              <span class="gauge-label">Tráfico de Red (Net I/O)</span>
-              <span class="gauge-val" style="font-size: 1.15rem; color: #38bdf8;" id="metricNetVal">0B / 0B</span>
-            </div>
-            <div class="gauge-detail" style="margin-top: 1rem;">
-              <span>Entrada (In): <strong id="metricNetIn" style="color: #34d399;">0 B</strong></span>
-              <span>Salida (Out): <strong id="metricNetOut" style="color: #60a5fa;">0 B</strong></span>
-            </div>
-            <div class="gauge-detail" style="margin-top: 0.5rem;">
-              <span>Block I/O: <strong id="metricBlockIo">0B / 0B</strong></span>
-            </div>
+        <!-- Right Column (Remaining): Projects Grid -->
+        <div class="dashboard-main-projects">
+          <div class="projects-grid" id="projectsContainer">
+            <!-- Rendered via JS -->
           </div>
         </div>
       </div>
@@ -1116,6 +1158,8 @@ export class DashboardService {
           </div>
         \`;
         document.getElementById('statRunningContainers').textContent = '0';
+        const titleEl = document.getElementById('metricsProjectTitle');
+        if (titleEl) titleEl.textContent = 'Ninguno';
         return;
       }
 

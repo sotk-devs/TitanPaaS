@@ -721,7 +721,6 @@ export class DashboardService {
       TitanPaaS <span class="brand-badge">Dashboard</span>
     </div>
     <div class="nav-actions" id="navActions">
-      <a href="/docs" target="_blank" class="btn btn-secondary btn-sm">Swagger API</a>
       <div id="authNavProfile" style="display: none;" class="user-pill">
         <div class="user-avatar" id="userInitial">U</div>
         <span id="userName">Usuario</span>
@@ -811,61 +810,41 @@ export class DashboardService {
 
       <!-- 3-Column Layout: Left (Endpoints Menu), Center (Active View), Right (Metrics) -->
       <div class="dashboard-layout-3col">
-        <!-- Left Column: Menu Desplegable / Opciones de Endpoints -->
+        <!-- Left Column: Menu de Endpoints -->
         <aside class="dashboard-sidebar-menu">
           <div style="margin-bottom: 0.75rem;">
             <label class="form-label" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">
-              Módulos y Endpoints
+              Módulos
             </label>
-            <select id="endpointSelect" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.88rem; font-weight: 600;" onchange="switchEndpointView(this.value)">
-              <option value="projects">/projects - Proyectos</option>
-              <option value="teams">/teams - Equipos & RBAC</option>
-              <option value="databases">/databases - Bases de Datos</option>
-              <option value="volumes">/volumes - Volúmenes</option>
-              <option value="domains">/domains - Dominios & SSL</option>
-              <option value="notifications">/notifications - Webhooks</option>
-              <option value="maintenance">/maintenance - Mantenimiento</option>
-              <option value="system">/system - Salud del Sistema</option>
-              <option value="docs">/docs - Swagger OpenAPI</option>
-            </select>
           </div>
 
           <nav class="endpoint-nav-list" id="endpointNavList">
             <button type="button" class="menu-item-btn active" data-view="projects" onclick="switchEndpointView('projects')">
               <span>Proyectos</span>
-              <span class="menu-badge">/projects</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="teams" onclick="switchEndpointView('teams')">
               <span>Equipos & RBAC</span>
-              <span class="menu-badge">/teams</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="databases" onclick="switchEndpointView('databases')">
               <span>Bases de Datos</span>
-              <span class="menu-badge">/databases</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="volumes" onclick="switchEndpointView('volumes')">
               <span>Volúmenes</span>
-              <span class="menu-badge">/volumes</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="domains" onclick="switchEndpointView('domains')">
               <span>Dominios & SSL</span>
-              <span class="menu-badge">/domains</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="notifications" onclick="switchEndpointView('notifications')">
               <span>Notificaciones</span>
-              <span class="menu-badge">/notif</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="maintenance" onclick="switchEndpointView('maintenance')">
               <span>Mantenimiento</span>
-              <span class="menu-badge">/gc</span>
             </button>
             <button type="button" class="menu-item-btn" data-view="system" onclick="switchEndpointView('system')">
               <span>Diagnóstico</span>
-              <span class="menu-badge">/health</span>
             </button>
             <a href="/docs" target="_blank" class="menu-item-btn" style="text-decoration: none;">
               <span>Documentación API</span>
-              <span class="menu-badge" style="background: #0284c7; color: white;">Swagger</span>
             </a>
           </nav>
         </aside>
